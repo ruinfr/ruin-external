@@ -27,6 +27,8 @@ namespace MenuLayout {
 // -----------------------------------------------------------------------------
 void DrawSectionHeader(const char* label);
 bool DrawSidebarItem(const char* label, bool selected);
+// Animated drop-in: hover fade (~150ms) + selected accent bar slide-in with easing.
+bool DrawSidebarItemAnimated(const char* label, bool selected);
 void DrawTopHeader(const char* icon, const char* title);
 
 // -----------------------------------------------------------------------------
