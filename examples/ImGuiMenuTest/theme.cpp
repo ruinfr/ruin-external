@@ -24,7 +24,11 @@ static inline ImVec4 Lerp(const ImVec4& a, const ImVec4& b, float t)
 
 void ThemeLight(ImVec4* colors)
 {
+    // Clean light theme: neutral grays, readable section headers, subtle borders, cohesive sidebar (neutral selected).
     ImVec4* c = colors;
+    const ImVec4 headerHoverLight  = U32ToVec4(kSidebarHoverBg);
+    const ImVec4 headerActiveLight = ImVec4(0.86f, 0.87f, 0.90f, 1.0f);  // cohesive gray selected, no blue block
+
     c[ImGuiCol_Text]                  = U32ToVec4(kText);
     c[ImGuiCol_All]                   = U32ToVec4(kText);
     c[ImGuiCol_TextDisabled]          = U32ToVec4(kTextDisabled);
@@ -52,9 +56,9 @@ void ThemeLight(ImVec4* colors)
     c[ImGuiCol_Button]                = U32ToVec4(kButton);
     c[ImGuiCol_ButtonHovered]         = U32ToVec4(kButtonHovered);
     c[ImGuiCol_ButtonActive]          = U32ToVec4(kButtonActive);
-    c[ImGuiCol_Header]                = U32ToVec4(kSidebarHoverBg);
-    c[ImGuiCol_HeaderHovered]         = U32ToVec4(kSidebarHoverBg);
-    c[ImGuiCol_HeaderActive]          = U32ToVec4(kSidebarSelectedBg);
+    c[ImGuiCol_Header]                = headerHoverLight;
+    c[ImGuiCol_HeaderHovered]         = headerHoverLight;
+    c[ImGuiCol_HeaderActive]          = headerActiveLight;
     c[ImGuiCol_Separator]             = U32ToVec4(kDivider);
     c[ImGuiCol_SeparatorHovered]      = U32ToVec4(kSidebarAccentBar);
     c[ImGuiCol_SeparatorActive]       = U32ToVec4(kSidebarAccentBar);
@@ -62,8 +66,8 @@ void ThemeLight(ImVec4* colors)
     c[ImGuiCol_ResizeGripHovered]     = ImVec4(0.55f, 0.60f, 0.78f, 0.70f);
     c[ImGuiCol_ResizeGripActive]      = ImVec4(0.45f, 0.52f, 0.72f, 1.0f);
     c[ImGuiCol_TabColor]              = U32ToVec4(kSidebarHoverBg);
-    c[ImGuiCol_TabHovered]            = U32ToVec4(kSidebarSelectedBg);
-    c[ImGuiCol_TabActive]             = U32ToVec4(kSidebarSelectedBg);
+    c[ImGuiCol_TabHovered]            = headerActiveLight;
+    c[ImGuiCol_TabActive]             = headerActiveLight;
     c[ImGuiCol_TabUnfocused]          = U32ToVec4(kSidebarBg);
     c[ImGuiCol_TabUnfocusedActive]     = U32ToVec4(kSidebarHoverBg);
     c[ImGuiCol_PlotLines]             = U32ToVec4(kSidebarAccentBar);
@@ -86,23 +90,24 @@ void ThemeLight(ImVec4* colors)
 
 void ThemeDark(ImVec4* colors)
 {
-    // Gray-based dark mode: no pure black, soft text (not pure white), subtle borders, no neon.
+    // Clean gray dark mode: no pure black, soft-white text, readable section headers, subtle borders, cohesive sidebar (no blue blocks).
     ImVec4* c = colors;
-    const ImVec4 softText     = ImVec4(0.90f, 0.90f, 0.92f, 1.0f);
-    const ImVec4 textDisabled = ImVec4(0.50f, 0.50f, 0.55f, 1.0f);
-    const ImVec4 windowBg     = ImVec4(0.12f, 0.12f, 0.14f, 1.0f);
-    const ImVec4 childBg     = ImVec4(0.14f, 0.14f, 0.17f, 1.0f);
-    const ImVec4 border      = ImVec4(0.28f, 0.28f, 0.32f, 1.0f);
-    const ImVec4 frameBg     = ImVec4(0.18f, 0.18f, 0.20f, 1.0f);
-    const ImVec4 frameHover  = ImVec4(0.22f, 0.22f, 0.25f, 1.0f);
-    const ImVec4 frameActive = ImVec4(0.25f, 0.25f, 0.28f, 1.0f);
-    const ImVec4 accentMuted = ImVec4(0.45f, 0.55f, 0.75f, 1.0f);  // muted blue, no neon
-    const ImVec4 headerBg    = ImVec4(0.22f, 0.22f, 0.26f, 1.0f);
-    const ImVec4 headerHover = ImVec4(0.28f, 0.28f, 0.33f, 1.0f);
-    const ImVec4 headerActive= ImVec4(0.25f, 0.30f, 0.38f, 1.0f);
-    const ImVec4 button      = ImVec4(0.28f, 0.32f, 0.42f, 1.0f);
-    const ImVec4 buttonHover = ImVec4(0.35f, 0.38f, 0.50f, 1.0f);
-    const ImVec4 buttonActive= ImVec4(0.32f, 0.36f, 0.48f, 1.0f);
+    const ImVec4 softText      = ImVec4(0.92f, 0.92f, 0.94f, 1.0f);  // soft white (not pure)
+    const ImVec4 textDisabled  = ImVec4(0.65f, 0.65f, 0.70f, 1.0f);  // section headers readable, don't fade too hard
+    const ImVec4 windowBg      = ImVec4(0.14f, 0.14f, 0.16f, 1.0f);  // gray, not black
+    const ImVec4 childBg       = ImVec4(0.16f, 0.16f, 0.18f, 1.0f);
+    const ImVec4 border        = ImVec4(0.30f, 0.30f, 0.34f, 1.0f);  // subtle but visible
+    const ImVec4 separator     = ImVec4(0.28f, 0.28f, 0.32f, 1.0f);
+    const ImVec4 frameBg       = ImVec4(0.20f, 0.20f, 0.22f, 1.0f);
+    const ImVec4 frameHover    = ImVec4(0.24f, 0.24f, 0.27f, 1.0f);
+    const ImVec4 frameActive   = ImVec4(0.27f, 0.27f, 0.30f, 1.0f);
+    const ImVec4 accentMuted   = ImVec4(0.50f, 0.58f, 0.72f, 1.0f);  // accent bar only, muted
+    const ImVec4 headerBg      = ImVec4(0.22f, 0.22f, 0.25f, 1.0f);
+    const ImVec4 headerHover   = ImVec4(0.26f, 0.26f, 0.29f, 1.0f);
+    const ImVec4 headerActive  = ImVec4(0.28f, 0.28f, 0.32f, 1.0f);  // cohesive gray selection, no blue block
+    const ImVec4 button        = ImVec4(0.28f, 0.30f, 0.34f, 1.0f);
+    const ImVec4 buttonHover   = ImVec4(0.34f, 0.36f, 0.40f, 1.0f);
+    const ImVec4 buttonActive  = ImVec4(0.32f, 0.34f, 0.38f, 1.0f);
 
     c[ImGuiCol_Text]                  = softText;
     c[ImGuiCol_All]                   = softText;
@@ -112,7 +117,7 @@ void ThemeDark(ImVec4* colors)
     c[ImGuiCol_main]                  = childBg;
     c[ImGuiCol_PopupBg]               = childBg;
     c[ImGuiCol_Border]                = border;
-    c[ImGuiCol_BorderShadow]          = ImVec4(0, 0, 0, 0.5f);
+    c[ImGuiCol_BorderShadow]          = ImVec4(0, 0, 0, 0.4f);
     c[ImGuiCol_FrameBg]               = frameBg;
     c[ImGuiCol_FrameBgHovered]        = frameHover;
     c[ImGuiCol_FrameBgActive]         = frameActive;
@@ -120,26 +125,26 @@ void ThemeDark(ImVec4* colors)
     c[ImGuiCol_TitleBgActive]         = windowBg;
     c[ImGuiCol_TitleBgCollapsed]      = windowBg;
     c[ImGuiCol_MenuBarBg]             = childBg;
-    c[ImGuiCol_ScrollbarBg]           = ImVec4(0.10f, 0.10f, 0.12f, 0.53f);
-    c[ImGuiCol_ScrollbarGrab]         = ImVec4(0.35f, 0.35f, 0.40f, 1.0f);
-    c[ImGuiCol_ScrollbarGrabHovered]  = ImVec4(0.45f, 0.45f, 0.50f, 1.0f);
-    c[ImGuiCol_ScrollbarGrabActive]   = ImVec4(0.55f, 0.55f, 0.60f, 1.0f);
+    c[ImGuiCol_ScrollbarBg]           = ImVec4(0.12f, 0.12f, 0.14f, 0.53f);
+    c[ImGuiCol_ScrollbarGrab]         = ImVec4(0.36f, 0.36f, 0.40f, 1.0f);
+    c[ImGuiCol_ScrollbarGrabHovered]  = ImVec4(0.46f, 0.46f, 0.50f, 1.0f);
+    c[ImGuiCol_ScrollbarGrabActive]   = ImVec4(0.54f, 0.54f, 0.58f, 1.0f);
     c[ImGuiCol_CheckMark]             = accentMuted;
     c[ImGuiCol_Tab]                   = headerBg;
     c[ImGuiCol_SliderGrab]            = accentMuted;
-    c[ImGuiCol_SliderGrabActive]      = ImVec4(0.50f, 0.60f, 0.80f, 1.0f);
+    c[ImGuiCol_SliderGrabActive]      = ImVec4(0.52f, 0.58f, 0.72f, 1.0f);
     c[ImGuiCol_Button]                = button;
     c[ImGuiCol_ButtonHovered]         = buttonHover;
-    c[ImGuiCol_ButtonActive]         = buttonActive;
+    c[ImGuiCol_ButtonActive]          = buttonActive;
     c[ImGuiCol_Header]                = headerBg;
     c[ImGuiCol_HeaderHovered]         = headerHover;
     c[ImGuiCol_HeaderActive]          = headerActive;
-    c[ImGuiCol_Separator]             = border;
+    c[ImGuiCol_Separator]             = separator;
     c[ImGuiCol_SeparatorHovered]      = accentMuted;
     c[ImGuiCol_SeparatorActive]       = accentMuted;
-    c[ImGuiCol_ResizeGrip]            = ImVec4(0.35f, 0.35f, 0.40f, 0.50f);
-    c[ImGuiCol_ResizeGripHovered]     = ImVec4(0.45f, 0.45f, 0.52f, 0.70f);
-    c[ImGuiCol_ResizeGripActive]      = ImVec4(0.50f, 0.50f, 0.58f, 1.0f);
+    c[ImGuiCol_ResizeGrip]            = ImVec4(0.36f, 0.36f, 0.40f, 0.50f);
+    c[ImGuiCol_ResizeGripHovered]     = ImVec4(0.46f, 0.46f, 0.50f, 0.70f);
+    c[ImGuiCol_ResizeGripActive]      = ImVec4(0.52f, 0.52f, 0.56f, 1.0f);
     c[ImGuiCol_TabColor]              = headerBg;
     c[ImGuiCol_TabHovered]            = headerActive;
     c[ImGuiCol_TabActive]             = headerActive;
@@ -150,16 +155,16 @@ void ThemeDark(ImVec4* colors)
     c[ImGuiCol_PlotHistogram]         = accentMuted;
     c[ImGuiCol_PlotHistogramHovered]  = buttonHover;
     c[ImGuiCol_TableHeaderBg]         = headerBg;
-    c[ImGuiCol_TableBorderStrong]    = ImVec4(0.30f, 0.30f, 0.35f, 1.0f);
-    c[ImGuiCol_TableBorderLight]      = ImVec4(0.24f, 0.24f, 0.28f, 1.0f);
+    c[ImGuiCol_TableBorderStrong]     = ImVec4(0.32f, 0.32f, 0.36f, 1.0f);
+    c[ImGuiCol_TableBorderLight]      = ImVec4(0.26f, 0.26f, 0.30f, 1.0f);
     c[ImGuiCol_TableRowBg]            = windowBg;
     c[ImGuiCol_TableRowBgAlt]         = childBg;
-    c[ImGuiCol_TextSelectedBg]        = ImVec4(0.30f, 0.38f, 0.55f, 0.35f);
-    c[ImGuiCol_DragDropTarget]        = ImVec4(0.35f, 0.45f, 0.65f, 0.60f);
-    c[ImGuiCol_NavHighlight]          = ImVec4(0.45f, 0.55f, 0.75f, 0.80f);
+    c[ImGuiCol_TextSelectedBg]       = ImVec4(0.32f, 0.36f, 0.44f, 0.35f);
+    c[ImGuiCol_DragDropTarget]        = ImVec4(0.38f, 0.42f, 0.52f, 0.60f);
+    c[ImGuiCol_NavHighlight]          = accentMuted;
     c[ImGuiCol_NavWindowingHighlight] = ImVec4(1.0f, 1.0f, 1.0f, 0.70f);
     c[ImGuiCol_NavWindowingDimBg]     = ImVec4(0, 0, 0, 0.40f);
-    c[ImGuiCol_ModalWindowDimBg]      = ImVec4(0, 0, 0, 0.60f);
+    c[ImGuiCol_ModalWindowDimBg]     = ImVec4(0, 0, 0, 0.55f);
     c[ImGuiCol_SliderText]            = softText;
 }
 

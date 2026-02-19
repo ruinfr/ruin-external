@@ -62,6 +62,7 @@ int main(int, char**)
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
+        ApplyMenuTheme();
         RenderMenu();
 
         ImGui::Render();

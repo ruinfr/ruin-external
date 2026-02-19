@@ -87,8 +87,8 @@ static float g_ThemeT   = 0.0f;
 static ImTextureID g_MoonTex = (ImTextureID)0;
 static bool        g_MoonTexTried = false;
 
-// ---- Settings path (next to executable) ----
-static void GetSettingsFilePath(char* out, int size)
+// ---- Path helpers (executable directory for reliable settings + icon paths) ----
+static void GetExeDir(char* out, int size)
 {
     if (!out || size <= 0) return;
     out[0] = '\0';
@@ -100,14 +100,21 @@ static void GetSettingsFilePath(char* out, int size)
         last[1] = '\0';
     else
         out[0] = '\0';
-    std::strncat(out, "settings.ini", size - (int)std::strlen(out) - 1);
 #else
     (void)size;
-    std::snprintf(out, 256, "settings.ini");
+    std::snprintf(out, 512, ".");
 #endif
 }
 
-// Load theme from settings.ini; set g_ThemeT immediately to 0 or 1 to avoid flash.
+static void GetSettingsFilePath(char* out, int size)
+{
+    if (!out || size <= 0) return;
+    GetExeDir(out, size);
+    if (!out[0]) return;
+    std::strncat(out, "settings.ini", size - (int)std::strlen(out) - 1);
+}
+
+// Load theme from settings.ini next to exe; set g_DarkMode and g_ThemeT immediately to avoid flash. No crash if file missing.
 static void LoadSettings()
 {
     char path[512];
@@ -119,7 +126,10 @@ static void LoadSettings()
     while (std::fgets(line, sizeof(line), f))
     {
         int dark = -1;
-        if (std::sscanf(line, " dark = %d", &dark) == 1 || std::sscanf(line, "dark=%d", &dark) == 1)
+        if (std::sscanf(line, " dark_mode = %d", &dark) == 1 ||
+            std::sscanf(line, "dark_mode=%d", &dark) == 1 ||
+            std::sscanf(line, " dark = %d", &dark) == 1 ||
+            std::sscanf(line, "dark=%d", &dark) == 1)
         {
             g_DarkMode = (dark != 0);
             g_ThemeT = g_DarkMode ? 1.0f : 0.0f;
@@ -129,7 +139,7 @@ static void LoadSettings()
     std::fclose(f);
 }
 
-// Persist theme choice to settings.ini next to executable.
+// Persist theme choice to settings.ini next to executable. No crash if write fails.
 static void SaveSettings()
 {
     char path[512];
@@ -137,7 +147,7 @@ static void SaveSettings()
     if (!path[0]) return;
     FILE* f = std::fopen(path, "w");
     if (!f) return;
-    std::fprintf(f, "[theme]\ndark=%d\n", g_DarkMode ? 1 : 0);
+    std::fprintf(f, "[theme]\ndark_mode=%d\ndark=%d\n", g_DarkMode ? 1 : 0, g_DarkMode ? 1 : 0);
     std::fclose(f);
 }
 
@@ -160,17 +170,33 @@ void ShutdownMenu()
     }
 }
 
+// Load moon icon once; prefer exe-dir icons/ then fallbacks. Never crashes; fallback to "🌙" if missing.
 static void EnsureMoonTexture()
 {
     if (g_MoonTexTried)
         return;
     g_MoonTexTried = true;
-    const char* paths[] = { "icons/moon.png", "../../../../icons/moon.png", "../../../icons/moon.png" };
-    for (const char* p : paths)
+    char buf[512];
+    char exeDir[512];
+    GetExeDir(exeDir, sizeof(exeDir));
+    if (exeDir[0])
     {
-        g_MoonTex = LoadTextureFromFileOpenGL(p);
-        if (g_MoonTex != (ImTextureID)0)
-            break;
+        std::snprintf(buf, sizeof(buf), "%sicons\\moon.png", exeDir);
+        g_MoonTex = LoadTextureFromFileOpenGL(buf);
+        if (g_MoonTex == (ImTextureID)0)
+        {
+            std::snprintf(buf, sizeof(buf), "%sicons/moon.png", exeDir);
+            g_MoonTex = LoadTextureFromFileOpenGL(buf);
+        }
+    }
+    if (g_MoonTex == (ImTextureID)0)
+    {
+        const char* fallbacks[] = { "icons/moon.png", "../../../../icons/moon.png", "../../../icons/moon.png" };
+        for (const char* p : fallbacks)
+        {
+            g_MoonTex = LoadTextureFromFileOpenGL(p);
+            if (g_MoonTex != (ImTextureID)0) break;
+        }
     }
 }
 
@@ -300,22 +326,77 @@ void DrawTopHeader(const char* icon, const char* title)
 
 // ---- Layout regions ----
 
+// Theme-aware rail tab (replaces ImGui::tab which uses hardcoded light colors in core).
+static bool DrawRailTab(const char* label, bool selected)
+{
+    ImGuiWindow* window = ImGui::GetCurrentWindow();
+    if (window->SkipItems) return false;
+    const ImGuiStyle& style = ImGui::GetCurrentContext()->Style;
+    const ImGuiID id = window->GetID(label);
+    const ImVec2 label_size = ImGui::CalcTextSize(label, NULL, true);
+    const ImVec2 size = ImGui::CalcItemSize(ImVec2(15, 15), label_size.x + style.FramePadding.x * 2.f, label_size.y + style.FramePadding.y * 2.f);
+    ImVec2 pos = window->DC.CursorPos;
+    const ImRect bb(pos, ImVec2(pos.x + size.x, pos.y + size.y));
+    ImGui::ItemSize(size, style.FramePadding.y);
+    if (!ImGui::ItemAdd(bb, id)) return false;
+    bool hovered = false, held = false;
+    bool pressed = ImGui::ButtonBehavior(bb, id, &hovered, &held, 0);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float rounding = 4.f;
+    ImU32 fill = GetStyleColorU32(held && hovered ? ImGuiCol_FrameBgActive : hovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg);
+    ImU32 border_col = GetStyleColorU32(ImGuiCol_Border);
+    dl->AddRectFilled(bb.Min, bb.Max, fill, rounding);
+    dl->AddRect(bb.Min, bb.Max, border_col, rounding);
+    if (selected)
+        dl->AddLine(ImVec2(bb.Max.x + 7, bb.Min.y + 3), ImVec2(bb.Max.x + 7, bb.Max.y - 3), GetStyleColorU32(ImGuiCol_CheckMark), 2.f);
+    return pressed;
+}
+
+// Theme-aware rail icon button (replaces ImGui::settingsbutton; uses FrameBg + Text from theme).
+static bool DrawRailIconButton(const char* label)
+{
+    ImGuiWindow* window = ImGui::GetCurrentWindow();
+    if (window->SkipItems) return false;
+    const ImGuiStyle& style = ImGui::GetCurrentContext()->Style;
+    const ImGuiID id = window->GetID(label);
+    if (!iconfont) return false;
+    ImGui::PushFont(iconfont);
+    const ImVec2 label_size = ImGui::CalcTextSize(label, NULL, true);
+    ImGui::PopFont();
+    const ImVec2 size = ImGui::CalcItemSize(ImVec2(15, 15), label_size.x + style.FramePadding.x * 2.f, label_size.y + style.FramePadding.y * 2.f);
+    ImVec2 pos = window->DC.CursorPos;
+    const ImRect bb(pos, ImVec2(pos.x + size.x, pos.y + size.y));
+    ImGui::ItemSize(size, style.FramePadding.y);
+    if (!ImGui::ItemAdd(bb, id)) return false;
+    bool hovered = false, held = false;
+    bool pressed = ImGui::ButtonBehavior(bb, id, &hovered, &held, 0);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float rounding = 4.f;
+    ImU32 fill = GetStyleColorU32(held && hovered ? ImGuiCol_FrameBgActive : hovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg);
+    dl->AddRectFilled(bb.Min, bb.Max, fill, rounding);
+    ImVec2 text_pos(bb.Min.x + size.x * 0.5f - label_size.x * 0.5f, bb.Min.y + size.y * 0.5f - label_size.y * 0.5f);
+    dl->AddText(iconfont, iconfont->FontSize, text_pos, GetStyleColorU32(ImGuiCol_Text), label);
+    return pressed;
+}
+
 static void DrawIconRail()
 {
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_MenuBarBg));
     ImGui::BeginChild("##icon_rail", ImVec2(kIconRailWidth, -1), false, 0);
     ImGui::SetCursorPos(ImVec2(kPanelPaddingH - 2.f, 7.f));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_Text));
     DrawTopHeader("K", nullptr);
+    ImGui::PopStyleColor();
     ImGui::SetCursorPos(ImVec2(17.f, 75.f));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 16));
     ImGui::BeginGroup();
-    if (ImGui::tab("A", 0 == tabs)) tabs = 0;
-    if (ImGui::tab("B", 1 == tabs)) tabs = 1;
-    if (ImGui::tab("C", 2 == tabs)) tabs = 2;
-    if (ImGui::tab("D", 3 == tabs)) tabs = 3;
-    if (ImGui::tab("E", 4 == tabs)) tabs = 4;
+    if (DrawRailTab("A", 0 == tabs)) tabs = 0;
+    if (DrawRailTab("B", 1 == tabs)) tabs = 1;
+    if (DrawRailTab("C", 2 == tabs)) tabs = 2;
+    if (DrawRailTab("D", 3 == tabs)) tabs = 3;
+    if (DrawRailTab("E", 4 == tabs)) tabs = 4;
     ImGui::SetCursorPosY(ImGui::GetWindowHeight() - 40.f);
-    if (ImGui::settingsbutton("L")) sett = 1;
+    if (DrawRailIconButton("L")) sett = 1;
     ImGui::EndGroup();
     ImGui::PopStyleVar();
     ImGui::EndChild();
@@ -404,7 +485,7 @@ static void DrawMenuBackground()
     draw->AddRectFilled(pos, ImVec2(pos.x + w, pos.y + h), GetStyleColorU32(ImGuiCol_WindowBg), rounding);
 }
 
-// Moon icon toggle: top-right, 22-26px, hover/active rounding, tooltip "Toggle theme". Fallback: "🌙" if texture missing.
+// Theme toggle: InvisibleButton + custom draw. Default transparent, hover/active use theme (no blue block). Icon tint = Text (dark in light, light in dark).
 static void DrawThemeToggleButton()
 {
     const float btn_size = 24.f;
@@ -414,20 +495,36 @@ static void DrawThemeToggleButton()
 
     EnsureMoonTexture();
 
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, Theme::Style::kFrameRounding);
-
-    bool clicked = false;
     ImGui::PushID("##theme_toggle");
+    ImGui::InvisibleButton("##theme_toggle_btn", ImVec2(btn_size, btn_size));
+    bool hovered = ImGui::IsItemHovered();
+    bool active = ImGui::IsItemActive();
+    bool clicked = ImGui::IsItemClicked(0);
+
+    ImVec2 mn = ImGui::GetItemRectMin();
+    ImVec2 mx = ImGui::GetItemRectMax();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float rounding = Theme::Style::kFrameRounding;
+
+    if (active)
+        dl->AddRectFilled(mn, mx, GetStyleColorU32(ImGuiCol_FrameBgActive), rounding);
+    else if (hovered)
+        dl->AddRectFilled(mn, mx, GetStyleColorU32(ImGuiCol_FrameBgHovered), rounding);
+
+    ImU32 icon_tint = GetStyleColorU32(ImGuiCol_Text);
     if (g_MoonTex != (ImTextureID)0)
-        clicked = ImGui::ImageButton(g_MoonTex, ImVec2(btn_size, btn_size), ImVec2(0, 0), ImVec2(1, 1), 0, ImVec4(0, 0, 0, 0), ImVec4(1, 1, 1, 1));
+        dl->AddImage(g_MoonTex, mn, mx, ImVec2(0, 0), ImVec2(1, 1), icon_tint);
     else
-        clicked = ImGui::Button("🌙", ImVec2(btn_size, btn_size));
+    {
+        const char* fallback = "🌙";
+        ImVec2 ts = ImGui::CalcTextSize(fallback);
+        ImVec2 pos(mn.x + (btn_size - ts.x) * 0.5f, mn.y + (btn_size - ts.y) * 0.5f);
+        dl->AddText(pos, icon_tint, fallback);
+    }
+
     ImGui::PopID();
 
-    ImGui::PopStyleVar(2);
-
-    if (ImGui::IsItemHovered())
+    if (hovered)
         ImGui::SetTooltip("Toggle theme");
     if (clicked)
     {
@@ -456,9 +553,9 @@ void LoadMenuFonts(ImGuiIO& io)
     io.Fonts->Build();
 }
 
-void RenderMenu()
+// Single theme apply per frame: update g_ThemeT from g_DarkMode, then ApplyBlendedTheme. Call after NewFrame(), before RenderMenu().
+void ApplyMenuTheme()
 {
-    // Update theme blend: g_ThemeT -> 1 when g_DarkMode, else -> 0. Constant speed, no overshoot.
     const float kThemeSpeed = 10.0f;
     float dt = ImGui::GetIO().DeltaTime;
     float target = g_DarkMode ? 1.0f : 0.0f;
@@ -466,9 +563,11 @@ void RenderMenu()
     if (g_ThemeT < target) { g_ThemeT = ImMin(g_ThemeT + step, target); }
     else if (g_ThemeT > target) { g_ThemeT = ImMax(g_ThemeT - step, target); }
     g_ThemeT = ImClamp(g_ThemeT, 0.0f, 1.0f);
-
     Theme::ApplyBlendedTheme(g_ThemeT);
+}
 
+void RenderMenu()
+{
     float w = kMenuWidth * dpi_scale;
     float h = kMenuHeight * dpi_scale;
     ImGui::Begin("Menu", nullptr, ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_HorizontalScrollbar);

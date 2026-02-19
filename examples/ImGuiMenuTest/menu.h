@@ -61,6 +61,8 @@ void DrawTopHeader(const char* icon, const char* title);
 // -----------------------------------------------------------------------------
 void InitMenuStyle();
 void LoadMenuFonts(ImGuiIO& io);
+// Call once per frame after NewFrame(), before RenderMenu(). Single source of theme apply (no flash).
+void ApplyMenuTheme();
 void RenderMenu();
 
 // Settings: load before first frame (sets theme immediately = no flash). Save on theme toggle.
