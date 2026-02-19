@@ -47,6 +47,7 @@ add_executable(ImGuiMenuTest
     main.cpp
     menu.cpp
     theme.cpp
+    texture_loader.cpp
     ${IMGUI_SOURCES}
     ${IMGUI_BACKEND_SOURCES}
     ${GL3W_SOURCE}

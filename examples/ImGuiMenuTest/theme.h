@@ -1,5 +1,7 @@
 #pragma once
 
+#include "imgui.h"
+
 // -----------------------------------------------------------------------------
 // Premium light theme: contrast, spacing, rounding, subtle depth.
 // Call ApplyTheme() after ImGui::CreateContext() (and when DPI changes).
@@ -57,6 +59,12 @@ namespace Color {
 
 // Apply the full theme and scale by dpi_scale (call after CreateContext / when DPI changes).
 void ApplyTheme(float dpi_scale = 1.f);
+
+// Two palettes + blending: fill arrays of ImGuiCol_COUNT colors (no scaling).
+void ThemeLight(ImVec4* colors);
+void ThemeDark(ImVec4* colors);
+// Lerp light -> dark by t, write into ImGui::GetStyle().Colors. Call once per frame before drawing menu.
+void ApplyBlendedTheme(float t);
 
 // Optional: push style for sidebar item (selected = true for selected state).
 // Use before drawing custom sidebar item; pop after.

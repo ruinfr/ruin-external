@@ -3,8 +3,14 @@
 #include "byte.h"
 #include "menu.h"
 #include "theme.h"
+#include "texture_loader.h"
 #include <cmath>
 #include <map>
+#include <cstdio>
+#include <cstring>
+#if defined(_WIN32)
+#include <Windows.h>
+#endif
 
 using namespace MenuLayout;
 
@@ -57,6 +63,9 @@ static ImU32 SetAlpha(ImU32 c, float alpha)
     return (c & 0x00FFFFFFu) | (a << 24);
 }
 
+// Theme-derived sidebar colors (no hardcoded yellow; from active ImGui style).
+static ImU32 GetStyleColorU32(ImGuiCol idx) { return ImGui::ColorConvertFloat4ToU32(ImGui::GetStyleColorVec4(idx)); }
+
 float dpi_scale = 1.f;
 
 ImFont* gilroy = nullptr;
@@ -70,13 +79,108 @@ static bool checkbox = false;
 static int tabs = 1;
 static int sett = 0;
 
+// Dark mode: persistent state + animation scalar (0=light, 1=dark). No theme colors changed yet.
+static bool  g_DarkMode = false;
+static float g_ThemeT   = 0.0f;
+
+// Moon icon for theme toggle. Loaded once; 0 if load failed (use fallback button).
+static ImTextureID g_MoonTex = (ImTextureID)0;
+static bool        g_MoonTexTried = false;
+
+// ---- Settings path (next to executable) ----
+static void GetSettingsFilePath(char* out, int size)
+{
+    if (!out || size <= 0) return;
+    out[0] = '\0';
+#if defined(_WIN32)
+    if (GetModuleFileNameA(NULL, out, size) == 0)
+        return;
+    char* last = std::strrchr(out, '\\');
+    if (last)
+        last[1] = '\0';
+    else
+        out[0] = '\0';
+    std::strncat(out, "settings.ini", size - (int)std::strlen(out) - 1);
+#else
+    (void)size;
+    std::snprintf(out, 256, "settings.ini");
+#endif
+}
+
+// Load theme from settings.ini; set g_ThemeT immediately to 0 or 1 to avoid flash.
+static void LoadSettings()
+{
+    char path[512];
+    GetSettingsFilePath(path, sizeof(path));
+    if (!path[0]) return;
+    FILE* f = std::fopen(path, "r");
+    if (!f) return;
+    char line[64];
+    while (std::fgets(line, sizeof(line), f))
+    {
+        int dark = -1;
+        if (std::sscanf(line, " dark = %d", &dark) == 1 || std::sscanf(line, "dark=%d", &dark) == 1)
+        {
+            g_DarkMode = (dark != 0);
+            g_ThemeT = g_DarkMode ? 1.0f : 0.0f;
+            break;
+        }
+    }
+    std::fclose(f);
+}
+
+// Persist theme choice to settings.ini next to executable.
+static void SaveSettings()
+{
+    char path[512];
+    GetSettingsFilePath(path, sizeof(path));
+    if (!path[0]) return;
+    FILE* f = std::fopen(path, "w");
+    if (!f) return;
+    std::fprintf(f, "[theme]\ndark=%d\n", g_DarkMode ? 1 : 0);
+    std::fclose(f);
+}
+
+void LoadMenuSettings()
+{
+    LoadSettings();
+}
+
+void SaveMenuSettings()
+{
+    SaveSettings();
+}
+
+void ShutdownMenu()
+{
+    if (g_MoonTex != (ImTextureID)0)
+    {
+        ReleaseTextureOpenGL(g_MoonTex);
+        g_MoonTex = (ImTextureID)0;
+    }
+}
+
+static void EnsureMoonTexture()
+{
+    if (g_MoonTexTried)
+        return;
+    g_MoonTexTried = true;
+    const char* paths[] = { "icons/moon.png", "../../../../icons/moon.png", "../../../icons/moon.png" };
+    for (const char* p : paths)
+    {
+        g_MoonTex = LoadTextureFromFileOpenGL(p);
+        if (g_MoonTex != (ImTextureID)0)
+            break;
+    }
+}
+
 // ---- Helpers ----
 
 void DrawSectionHeader(const char* label)
 {
     ImGui::Spacing();
     ImGui::Dummy(ImVec2(0, kSectionSpacingAbove));
-    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(Theme::Color::kSectionHeader));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
     ImGui::SetWindowFontScale(kSectionHeaderScale);
     ImGui::TextUnformatted(label);
     ImGui::SetWindowFontScale(1.f);
@@ -84,7 +188,7 @@ void DrawSectionHeader(const char* label)
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImVec2 p = ImGui::GetCursorScreenPos();
     float w = ImGui::GetContentRegionAvail().x;
-    dl->AddLine(ImVec2(p.x, p.y), ImVec2(p.x + w, p.y), Theme::Color::kDivider, kDividerThickness);
+    dl->AddLine(ImVec2(p.x, p.y), ImVec2(p.x + w, p.y), GetStyleColorU32(ImGuiCol_Separator), kDividerThickness);
     ImGui::Dummy(ImVec2(0, kDividerPaddingV));
 }
 
@@ -108,15 +212,15 @@ bool DrawSidebarItem(const char* display_label, const char* unique_id, bool sele
     bool pressed = ImGui::ButtonBehavior(bb, id, &hovered, &held, 0);
     ImDrawList* dl = ImGui::GetWindowDrawList();
     float rounding = Theme::Style::kFrameRounding;
+    // Theme-derived: selected = HeaderActive, hover = FrameBgHovered, accent = CheckMark, text = Text (readable in both modes)
     if (selected)
-        dl->AddRectFilled(bb.Min, bb.Max, Theme::Color::kSidebarSelectedBg, rounding);
+        dl->AddRectFilled(bb.Min, bb.Max, GetStyleColorU32(ImGuiCol_HeaderActive), rounding);
     if (hovered && !selected)
-        dl->AddRectFilled(bb.Min, bb.Max, Theme::Color::kSidebarHoverBg, rounding);
+        dl->AddRectFilled(bb.Min, bb.Max, GetStyleColorU32(ImGuiCol_FrameBgHovered), rounding);
     if (selected)
-        dl->AddRectFilled(ImVec2(bb.Min.x, bb.Min.y), ImVec2(bb.Min.x + kAccentBarWidth, bb.Max.y), Theme::Color::kSidebarAccentBar, 0.f);
+        dl->AddRectFilled(ImVec2(bb.Min.x, bb.Min.y), ImVec2(bb.Min.x + kAccentBarWidth, bb.Max.y), GetStyleColorU32(ImGuiCol_CheckMark), 0.f);
     ImVec2 text_pos(bb.Min.x + style.FramePadding.x + (selected ? kAccentBarWidth : 0.f), bb.Min.y + (kSidebarItemHeight - label_size.y) * 0.5f);
-    ImU32 text_color = selected ? Theme::Color::kSidebarItemTextSelected : Theme::Color::kSidebarItemText;
-    dl->AddText(text_pos, text_color, display_label);
+    dl->AddText(text_pos, GetStyleColorU32(ImGuiCol_Text), display_label);
     return pressed;
 }
 
@@ -152,27 +256,28 @@ bool DrawSidebarItemAnimated(const char* display_label, const char* unique_id, b
     ImDrawList* dl = ImGui::GetWindowDrawList();
     float rounding = Theme::Style::kFrameRounding;
 
+    // Single background per item (no stacked alpha): selected uses HeaderActive, hover uses FrameBgHovered.
     if (sl > 0.001f)
     {
-        ImU32 selected_bg = SetAlpha(Theme::Color::kSidebarSelectedBg, sl);
+        ImU32 selected_bg = SetAlpha(GetStyleColorU32(ImGuiCol_HeaderActive), sl);
         dl->AddRectFilled(bb.Min, bb.Max, selected_bg, rounding);
     }
-    if (ha > 0.001f && sl < 0.999f)
+    else if (ha > 0.001f)
     {
-        ImU32 hover_bg = SetAlpha(Theme::Color::kSidebarHoverBg, ha);
+        ImU32 hover_bg = SetAlpha(GetStyleColorU32(ImGuiCol_FrameBgHovered), ha);
         dl->AddRectFilled(bb.Min, bb.Max, hover_bg, rounding);
     }
+
     if (sl > 0.001f)
     {
         float bar_w = kAccentBarWidth * EaseOutCubic(sl);
-        dl->AddRectFilled(ImVec2(bb.Min.x, bb.Min.y), ImVec2(bb.Min.x + bar_w, bb.Max.y), Theme::Color::kSidebarAccentBar, 0.f);
+        dl->AddRectFilled(ImVec2(bb.Min.x, bb.Min.y), ImVec2(bb.Min.x + bar_w, bb.Max.y), GetStyleColorU32(ImGuiCol_CheckMark), 0.f);
     }
 
     float bar_vis = EaseOutCubic(sl);
     float text_offset = bar_vis * kAccentBarWidth;
     ImVec2 text_pos(bb.Min.x + style.FramePadding.x + text_offset, bb.Min.y + (kSidebarItemHeight - label_size.y) * 0.5f);
-    ImU32 text_color = selected ? Theme::Color::kSidebarItemTextSelected : Theme::Color::kSidebarItemText;
-    dl->AddText(text_pos, text_color, display_label);
+    dl->AddText(text_pos, GetStyleColorU32(ImGuiCol_Text), display_label);
     return pressed;
 }
 
@@ -197,7 +302,7 @@ void DrawTopHeader(const char* icon, const char* title)
 
 static void DrawIconRail()
 {
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::ColorConvertU32ToFloat4(Theme::Color::kSidebarBg));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_MenuBarBg));
     ImGui::BeginChild("##icon_rail", ImVec2(kIconRailWidth, -1), false, 0);
     ImGui::SetCursorPos(ImVec2(kPanelPaddingH - 2.f, 7.f));
     DrawTopHeader("K", nullptr);
@@ -223,7 +328,7 @@ static void DrawSidebar()
         return;
     const std::vector<NavSection>& sections = GetNavSections();
     ImGui::SameLine(0, 0);
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::ColorConvertU32ToFloat4(Theme::Color::kSidebarBg));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_MenuBarBg));
     ImGui::BeginChild("Visuals", ImVec2(kSidebarWidth, -1), false, 0);
     ImGui::SetCursorPos(ImVec2(kPanelPaddingH, kPanelPaddingV));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, kSidebarItemSpacing));
@@ -253,7 +358,7 @@ static void DrawVerticalDivider()
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImVec2 p = ImGui::GetCursorScreenPos();
     float h = ImGui::GetWindowHeight();
-    dl->AddLine(ImVec2(p.x, p.y), ImVec2(p.x, p.y + h), Theme::Color::kDivider, kDividerThickness);
+    dl->AddLine(ImVec2(p.x, p.y), ImVec2(p.x, p.y + h), GetStyleColorU32(ImGuiCol_Separator), kDividerThickness);
     ImGui::Dummy(ImVec2(kDividerThickness + 2.f, 0));
 }
 
@@ -266,7 +371,7 @@ static void DrawGeneralPanel()
     float general_w = ImGui::GetContentRegionAvail().x - kPreviewWidth - 4.f;
     if (general_w < 200.f)
         general_w = 200.f;
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::ColorConvertU32ToFloat4(Theme::Color::kPanelBg));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_ChildBg));
     ImGui::BeginChild("General", ImVec2(general_w, -1), false, 0);
     ImGui::SetCursorPos(ImVec2(kPanelPaddingH, kPanelPaddingV));
     ImGui::BeginGroup();
@@ -283,7 +388,7 @@ static void DrawPreviewPanel()
         return;
     DrawVerticalDivider();
     ImGui::SameLine(0, 0);
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::ColorConvertU32ToFloat4(Theme::Color::kPanelBg));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_ChildBg));
     ImGui::BeginChild("Preview", ImVec2(kPreviewWidth, -1), false, 0);
     ImGui::EndChild();
     ImGui::PopStyleColor();
@@ -296,7 +401,39 @@ static void DrawMenuBackground()
     float w = kMenuWidth * dpi_scale;
     float h = kMenuHeight * dpi_scale;
     float rounding = Theme::Style::kWindowRounding;
-    draw->AddRectFilled(pos, ImVec2(pos.x + w, pos.y + h), Theme::Color::kWindowBg, rounding);
+    draw->AddRectFilled(pos, ImVec2(pos.x + w, pos.y + h), GetStyleColorU32(ImGuiCol_WindowBg), rounding);
+}
+
+// Moon icon toggle: top-right, 22-26px, hover/active rounding, tooltip "Toggle theme". Fallback: "🌙" if texture missing.
+static void DrawThemeToggleButton()
+{
+    const float btn_size = 24.f;
+    const float margin = 8.f;
+    float win_w = ImGui::GetWindowWidth();
+    ImGui::SetCursorPos(ImVec2(win_w - btn_size - margin, margin));
+
+    EnsureMoonTexture();
+
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, Theme::Style::kFrameRounding);
+
+    bool clicked = false;
+    ImGui::PushID("##theme_toggle");
+    if (g_MoonTex != (ImTextureID)0)
+        clicked = ImGui::ImageButton(g_MoonTex, ImVec2(btn_size, btn_size), ImVec2(0, 0), ImVec2(1, 1), 0, ImVec4(0, 0, 0, 0), ImVec4(1, 1, 1, 1));
+    else
+        clicked = ImGui::Button("🌙", ImVec2(btn_size, btn_size));
+    ImGui::PopID();
+
+    ImGui::PopStyleVar(2);
+
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Toggle theme");
+    if (clicked)
+    {
+        g_DarkMode = !g_DarkMode;
+        SaveMenuSettings();
+    }
 }
 
 // ---- Public API ----
@@ -321,11 +458,23 @@ void LoadMenuFonts(ImGuiIO& io)
 
 void RenderMenu()
 {
+    // Update theme blend: g_ThemeT -> 1 when g_DarkMode, else -> 0. Constant speed, no overshoot.
+    const float kThemeSpeed = 10.0f;
+    float dt = ImGui::GetIO().DeltaTime;
+    float target = g_DarkMode ? 1.0f : 0.0f;
+    float step = kThemeSpeed * dt;
+    if (g_ThemeT < target) { g_ThemeT = ImMin(g_ThemeT + step, target); }
+    else if (g_ThemeT > target) { g_ThemeT = ImMax(g_ThemeT - step, target); }
+    g_ThemeT = ImClamp(g_ThemeT, 0.0f, 1.0f);
+
+    Theme::ApplyBlendedTheme(g_ThemeT);
+
     float w = kMenuWidth * dpi_scale;
     float h = kMenuHeight * dpi_scale;
     ImGui::Begin("Menu", nullptr, ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_HorizontalScrollbar);
     ImGui::SetWindowSize(ImVec2(ImFloor(w), ImFloor(h)));
     DrawMenuBackground();
+    DrawThemeToggleButton();
     DrawIconRail();
     DrawVerticalDivider();
     DrawSidebar();

@@ -49,6 +49,7 @@ int main(int, char**)
 
     InitMenuStyle();
     LoadMenuFonts(io);
+    LoadMenuSettings();
 
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init(glsl_version);
@@ -74,6 +75,7 @@ int main(int, char**)
         glfwSwapBuffers(window);
     }
 
+    ShutdownMenu();
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();

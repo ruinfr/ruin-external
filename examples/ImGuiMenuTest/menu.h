@@ -62,3 +62,9 @@ void DrawTopHeader(const char* icon, const char* title);
 void InitMenuStyle();
 void LoadMenuFonts(ImGuiIO& io);
 void RenderMenu();
+
+// Settings: load before first frame (sets theme immediately = no flash). Save on theme toggle.
+void LoadMenuSettings();
+void SaveMenuSettings();
+// Release menu resources (e.g. icon texture). Call before renderer shutdown.
+void ShutdownMenu();
