@@ -26,9 +26,9 @@ namespace MenuLayout {
 // Helpers (non-clickable section header, clickable sidebar item, top icon+title)
 // -----------------------------------------------------------------------------
 void DrawSectionHeader(const char* label);
-bool DrawSidebarItem(const char* label, bool selected);
-// Animated drop-in: hover fade (~150ms) + selected accent bar slide-in with easing.
-bool DrawSidebarItemAnimated(const char* label, bool selected);
+// display_label = text shown to user (e.g. "ESP"). unique_id = stable ID per section (e.g. "enemy_esp") — never shown.
+bool DrawSidebarItem(const char* display_label, const char* unique_id, bool selected);
+bool DrawSidebarItemAnimated(const char* display_label, const char* unique_id, bool selected);
 void DrawTopHeader(const char* icon, const char* title);
 
 // -----------------------------------------------------------------------------

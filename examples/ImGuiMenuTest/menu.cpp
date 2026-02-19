@@ -58,15 +58,15 @@ void DrawSectionHeader(const char* label)
     ImGui::Dummy(ImVec2(0, kDividerPaddingV));
 }
 
-bool DrawSidebarItem(const char* label, bool selected)
+bool DrawSidebarItem(const char* display_label, const char* unique_id, bool selected)
 {
     ImGuiWindow* window = ImGui::GetCurrentWindow();
     if (window->SkipItems)
         return false;
     ImGuiContext& g = *ImGui::GetCurrentContext();
     const ImGuiStyle& style = g.Style;
-    const ImGuiID id = window->GetID(label);
-    const ImVec2 label_size = ImGui::CalcTextSize(label, NULL, true);
+    const ImGuiID id = window->GetID(unique_id);
+    const ImVec2 label_size = ImGui::CalcTextSize(display_label, NULL, true);
     float avail_w = ImGui::GetContentRegionAvail().x;
     ImVec2 size(avail_w, kSidebarItemHeight);
     ImVec2 pos = window->DC.CursorPos;
@@ -86,19 +86,19 @@ bool DrawSidebarItem(const char* label, bool selected)
         dl->AddRectFilled(ImVec2(bb.Min.x, bb.Min.y), ImVec2(bb.Min.x + kAccentBarWidth, bb.Max.y), Theme::Color::kSidebarAccentBar, 0.f);
     ImVec2 text_pos(bb.Min.x + style.FramePadding.x + (selected ? kAccentBarWidth : 0.f), bb.Min.y + (kSidebarItemHeight - label_size.y) * 0.5f);
     ImU32 text_color = selected ? Theme::Color::kSidebarItemTextSelected : Theme::Color::kSidebarItemText;
-    dl->AddText(text_pos, text_color, label);
+    dl->AddText(text_pos, text_color, display_label);
     return pressed;
 }
 
-bool DrawSidebarItemAnimated(const char* label, bool selected)
+bool DrawSidebarItemAnimated(const char* display_label, const char* unique_id, bool selected)
 {
     ImGuiWindow* window = ImGui::GetCurrentWindow();
     if (window->SkipItems)
         return false;
     ImGuiContext& g = *ImGui::GetCurrentContext();
     const ImGuiStyle& style = g.Style;
-    const ImGuiID id = window->GetID(label);
-    const ImVec2 label_size = ImGui::CalcTextSize(label, NULL, true);
+    const ImGuiID id = window->GetID(unique_id);
+    const ImVec2 label_size = ImGui::CalcTextSize(display_label, NULL, true);
     float avail_w = ImGui::GetContentRegionAvail().x;
     ImVec2 size(avail_w, kSidebarItemHeight);
     ImVec2 pos = window->DC.CursorPos;
@@ -142,7 +142,7 @@ bool DrawSidebarItemAnimated(const char* label, bool selected)
     float text_offset = bar_vis * kAccentBarWidth;
     ImVec2 text_pos(bb.Min.x + style.FramePadding.x + text_offset, bb.Min.y + (kSidebarItemHeight - label_size.y) * 0.5f);
     ImU32 text_color = selected ? Theme::Color::kSidebarItemTextSelected : Theme::Color::kSidebarItemText;
-    dl->AddText(text_pos, text_color, label);
+    dl->AddText(text_pos, text_color, display_label);
     return pressed;
 }
 
@@ -197,17 +197,17 @@ static void DrawSidebar()
     ImGui::SetCursorPos(ImVec2(kPanelPaddingH, kPanelPaddingV));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, kSidebarItemSpacing));
     DrawSectionHeader("ENEMY");
-    if (DrawSidebarItemAnimated("ESP", subtabs == 0)) subtabs = 0;
-    if (DrawSidebarItemAnimated("Chams", subtabs == 1)) subtabs = 1;
-    if (DrawSidebarItemAnimated("Other", subtabs == 2)) subtabs = 2;
+    if (DrawSidebarItemAnimated("ESP", "enemy_esp", subtabs == 0)) subtabs = 0;
+    if (DrawSidebarItemAnimated("Chams", "enemy_chams", subtabs == 1)) subtabs = 1;
+    if (DrawSidebarItemAnimated("Other", "enemy_other", subtabs == 2)) subtabs = 2;
     DrawSectionHeader("TEAM");
-    if (DrawSidebarItemAnimated("ESP##1", subtabs == 3)) subtabs = 3;
-    if (DrawSidebarItemAnimated("Chams##1", subtabs == 4)) subtabs = 4;
-    if (DrawSidebarItemAnimated("Other##1", subtabs == 5)) subtabs = 5;
+    if (DrawSidebarItemAnimated("ESP", "team_esp", subtabs == 3)) subtabs = 3;
+    if (DrawSidebarItemAnimated("Chams", "team_chams", subtabs == 4)) subtabs = 4;
+    if (DrawSidebarItemAnimated("Other", "team_other", subtabs == 5)) subtabs = 5;
     DrawSectionHeader("WORLD");
-    if (DrawSidebarItemAnimated("ESP##2", subtabs == 6)) subtabs = 6;
-    if (DrawSidebarItemAnimated("Chams##2", subtabs == 7)) subtabs = 7;
-    if (DrawSidebarItemAnimated("Other##2", subtabs == 8)) subtabs = 8;
+    if (DrawSidebarItemAnimated("ESP", "world_esp", subtabs == 6)) subtabs = 6;
+    if (DrawSidebarItemAnimated("Chams", "world_chams", subtabs == 7)) subtabs = 7;
+    if (DrawSidebarItemAnimated("Other", "world_other", subtabs == 8)) subtabs = 8;
     ImGui::PopStyleVar();
     ImGui::EndChild();
     ImGui::PopStyleColor();
