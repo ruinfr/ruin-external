@@ -10,7 +10,7 @@ namespace Theme {
 // Style constants (base values; scaled by ApplyTheme(dpi_scale))
 namespace Style {
     const float kWindowRounding   = 8.f;
-    const float kFrameRounding   = 6.f;
+    const float kFrameRounding   = 6.f;   // sidebar item rounding 6-8px
     const float kPopupRounding   = 6.f;
     const float kScrollbarRounding = 6.f;
     const float kGrabRounding    = 4.f;
@@ -26,33 +26,33 @@ namespace Style {
     const float kScrollbarSize  = 10.f;
 }
 
-// Colors (light theme, high contrast for text; low alpha only for disabled)
+// Colors (light modern: neutral base, subtle hover, single soft blue accent, no yellow)
 namespace Color {
-    // Backgrounds (subtle depth: window lightest, then panel, then sidebar)
-    const unsigned int kWindowBg     = 0xFFF8F9FC;  // main window
-    const unsigned int kSidebarBg   = 0xFFF2F3F6;  // sidebar
-    const unsigned int kPanelBg     = 0xFFF5F6F9;  // general/preview panels
-    // Text: strong contrast
-    const unsigned int kText        = 0xFF1C1E24;   // normal
-    const unsigned int kTextDisabled = 0xFF9CA0A8; // disabled only (reduced contrast)
-    const unsigned int kSectionHeader = 0xFF6B6F78; // structural labels
-    // Sidebar items
-    const unsigned int kSidebarItemText       = 0xFF2C2E36;
-    const unsigned int kSidebarItemTextSelected = 0xFF1A1C22;
-    const unsigned int kSidebarHoverBg        = 0xFFE8EAEF;
-    const unsigned int kSidebarSelectedBg     = 0xFFE2E4EB;
-    const unsigned int kSidebarAccentBar      = 0xFFC62828;  // strong accent
+    // Backgrounds (neutral, cohesive)
+    const unsigned int kWindowBg     = 0xFFF0EDED;  // base (0.93, 0.93, 0.94)
+    const unsigned int kSidebarBg    = 0xFFE8E6E6;  // sidebar (0.90, 0.90, 0.91)
+    const unsigned int kPanelBg     = 0xFFECEAED;  // panels (between base and sidebar)
+    // Text
+    const unsigned int kText        = 0xFF2B2626;  // primary (0.15, 0.15, 0.17)
+    const unsigned int kTextDisabled = 0xFF7F7373; // secondary / disabled (0.45, 0.45, 0.50)
+    const unsigned int kSectionHeader = 0xFF7F7373; // same as secondary
+    // Sidebar: subtle hover, stronger selected, single accent
+    const unsigned int kSidebarItemText         = 0xFF2B2626;  // primary text
+    const unsigned int kSidebarItemTextSelected = 0xFF1F1C26;  // stronger when selected
+    const unsigned int kSidebarHoverBg          = 0xFFE6DED9;  // hover (0.85, 0.87, 0.90) — slightly darken
+    const unsigned int kSidebarSelectedBg      = 0xFFF2D9CC;  // selected (0.80, 0.85, 0.95) — soft blue tint
+    const unsigned int kSidebarAccentBar       = 0xFFD97340;  // modern soft blue (0.25, 0.45, 0.85) — 3px left bar
     // Dividers and borders
-    const unsigned int kDivider   = 0xFFDEE0E5;
-    const unsigned int kBorder    = 0xFFE2E4E8;
-    // Buttons (accent)
-    const unsigned int kButton        = 0xFFC62828;
-    const unsigned int kButtonHovered = 0xFFD32F2F;
-    const unsigned int kButtonActive  = 0xFFB71C1C;
+    const unsigned int kDivider   = 0xFFE5E0DE;
+    const unsigned int kBorder    = 0xFFE8E4E2;
+    // Buttons (use same accent)
+    const unsigned int kButton        = 0xFFD97340;
+    const unsigned int kButtonHovered = 0xFFE08050;
+    const unsigned int kButtonActive  = 0xFFC96838;
     // Frames (inputs)
     const unsigned int kFrameBg        = 0xFFFFFFFF;
-    const unsigned int kFrameBgHovered = 0xFFF5F6F9;
-    const unsigned int kFrameBgActive  = 0xFFEEF0F4;
+    const unsigned int kFrameBgHovered = 0xFFF5F4F2;
+    const unsigned int kFrameBgActive  = 0xFFEEEDEC;
 }
 
 // Apply the full theme and scale by dpi_scale (call after CreateContext / when DPI changes).
