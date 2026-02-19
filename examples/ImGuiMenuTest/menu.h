@@ -1,6 +1,31 @@
 #pragma once
 
 struct ImGuiIO;
+#include <vector>
+
+// -----------------------------------------------------------------------------
+// Sidebar navigation (data-driven)
+// -----------------------------------------------------------------------------
+enum class Section { Enemy, Team, World };
+
+struct NavItem {
+    const char* label;
+    const char* id;
+};
+
+struct NavSection {
+    const char* header;
+    std::vector<NavItem> items;
+};
+
+struct SidebarSelection {
+    int section;
+    int item;
+};
+
+// Builds the sidebar nav data (Enemy/Team/World + items). No allocations after first call.
+const std::vector<NavSection>& GetNavSections();
+int GetSidebarFlatIndex(const std::vector<NavSection>& sections, int section_index, int item_index);
 
 // -----------------------------------------------------------------------------
 // Layout constants (use these instead of magic numbers)

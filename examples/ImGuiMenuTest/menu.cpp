@@ -8,6 +8,37 @@
 
 using namespace MenuLayout;
 
+// ---- Sidebar data + selection ----
+
+static SidebarSelection s_sidebar = { 0, 0 };
+
+static std::vector<NavSection> s_nav_sections;
+
+const std::vector<NavSection>& GetNavSections()
+{
+    if (s_nav_sections.empty())
+    {
+        s_nav_sections.push_back({ "ENEMY", { {"ESP", "enemy_esp"}, {"Chams", "enemy_chams"}, {"Other", "enemy_other"} } });
+        s_nav_sections.push_back({ "TEAM",  { {"ESP", "team_esp"},  {"Chams", "team_chams"},  {"Other", "team_other"} } });
+        s_nav_sections.push_back({ "WORLD", { {"ESP", "world_esp"}, {"Chams", "world_chams"}, {"Other", "world_other"} } });
+    }
+    return s_nav_sections;
+}
+
+int GetSidebarFlatIndex(const std::vector<NavSection>& sections, int section_index, int item_index)
+{
+    int flat = 0;
+    for (int s = 0; s < section_index && s < (int)sections.size(); s++)
+        flat += (int)sections[s].items.size();
+    return flat + item_index;
+}
+
+static int GetCurrentSidebarFlatIndex()
+{
+    const std::vector<NavSection>& sections = GetNavSections();
+    return GetSidebarFlatIndex(sections, s_sidebar.section, s_sidebar.item);
+}
+
 // Animation: ~150ms hover fade, ~180ms selected slide with easing. No per-frame allocs.
 static const float kHoverAnimDuration    = 0.15f;
 static const float kSelectedAnimDuration = 0.18f;
@@ -37,7 +68,6 @@ ImDrawList* draw = nullptr;
 static int sliderint = 0;
 static bool checkbox = false;
 static int tabs = 1;
-static int subtabs = 0;
 static int sett = 0;
 
 // ---- Helpers ----
@@ -191,23 +221,27 @@ static void DrawSidebar()
 {
     if (tabs != 1)
         return;
+    const std::vector<NavSection>& sections = GetNavSections();
     ImGui::SameLine(0, 0);
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::ColorConvertU32ToFloat4(Theme::Color::kSidebarBg));
     ImGui::BeginChild("Visuals", ImVec2(kSidebarWidth, -1), false, 0);
     ImGui::SetCursorPos(ImVec2(kPanelPaddingH, kPanelPaddingV));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, kSidebarItemSpacing));
-    DrawSectionHeader("ENEMY");
-    if (DrawSidebarItemAnimated("ESP", "enemy_esp", subtabs == 0)) subtabs = 0;
-    if (DrawSidebarItemAnimated("Chams", "enemy_chams", subtabs == 1)) subtabs = 1;
-    if (DrawSidebarItemAnimated("Other", "enemy_other", subtabs == 2)) subtabs = 2;
-    DrawSectionHeader("TEAM");
-    if (DrawSidebarItemAnimated("ESP", "team_esp", subtabs == 3)) subtabs = 3;
-    if (DrawSidebarItemAnimated("Chams", "team_chams", subtabs == 4)) subtabs = 4;
-    if (DrawSidebarItemAnimated("Other", "team_other", subtabs == 5)) subtabs = 5;
-    DrawSectionHeader("WORLD");
-    if (DrawSidebarItemAnimated("ESP", "world_esp", subtabs == 6)) subtabs = 6;
-    if (DrawSidebarItemAnimated("Chams", "world_chams", subtabs == 7)) subtabs = 7;
-    if (DrawSidebarItemAnimated("Other", "world_other", subtabs == 8)) subtabs = 8;
+    for (int si = 0; si < (int)sections.size(); si++)
+    {
+        const NavSection& sec = sections[si];
+        DrawSectionHeader(sec.header);
+        for (int ii = 0; ii < (int)sec.items.size(); ii++)
+        {
+            const NavItem& it = sec.items[ii];
+            bool selected = (s_sidebar.section == si && s_sidebar.item == ii);
+            if (DrawSidebarItemAnimated(it.label, it.id, selected))
+            {
+                s_sidebar.section = si;
+                s_sidebar.item = ii;
+            }
+        }
+    }
     ImGui::PopStyleVar();
     ImGui::EndChild();
     ImGui::PopStyleColor();
