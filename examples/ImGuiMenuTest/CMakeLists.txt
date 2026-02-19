@@ -46,6 +46,7 @@ set(GL3W_SOURCE ${IMGUI_EXAMPLES_LIBS}/gl3w/GL/gl3w.c)
 add_executable(ImGuiMenuTest
     main.cpp
     menu.cpp
+    theme.cpp
     ${IMGUI_SOURCES}
     ${IMGUI_BACKEND_SOURCES}
     ${GL3W_SOURCE}
