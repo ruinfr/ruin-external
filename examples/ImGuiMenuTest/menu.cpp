@@ -8,11 +8,24 @@
 #include <map>
 #include <cstdio>
 #include <cstring>
+#include <chrono>
 #if defined(_WIN32)
 #include <Windows.h>
 #endif
 
 using namespace MenuLayout;
+
+// #region agent log
+void DebugLog(const char* location, const char* message, const char* step)
+{
+    FILE* f = std::fopen("c:\\Users\\cobra\\Downloads\\RUIN EXTERNAL\\debug-20d588.log", "a");
+    if (!f) return;
+    auto now = std::chrono::steady_clock::now();
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+    std::fprintf(f, "{\"sessionId\":\"20d588\",\"location\":\"%s\",\"message\":\"%s\",\"data\":{\"step\":\"%s\"},\"timestamp\":%lld}\n", location, message, step, (long long)ms);
+    std::fclose(f);
+}
+// #endregion
 
 // ---- Sidebar data + selection ----
 
@@ -57,6 +70,21 @@ static float EaseOutCubic(float t)
     return 1.f - (1.f - t) * (1.f - t) * (1.f - t);
 }
 
+// EaseInOutCubic: smooth start and end for theme transition (no linear feel).
+static float EaseInOutCubic(float t)
+{
+    t = ImClamp(t, 0.f, 1.f);
+    return t <= 0.5f ? 4.f * t * t * t : 1.f - (-2.f * t + 2.f) * (-2.f * t + 2.f) * (-2.f * t + 2.f) * 0.5f;
+}
+
+// Move towards target at constant rate; stable at any FPS, no overshoot.
+static float MoveTowards(float current, float target, float max_delta)
+{
+    if (current < target) return ImMin(current + max_delta, target);
+    if (current > target) return ImMax(current - max_delta, target);
+    return target;
+}
+
 static ImU32 SetAlpha(ImU32 c, float alpha)
 {
     unsigned int a = (unsigned int)(ImClamp(alpha, 0.f, 1.f) * 255.f) & 0xFF;
@@ -74,10 +102,76 @@ ImFont* iconfont = nullptr;
 ImVec2 pos;
 ImDrawList* draw = nullptr;
 
-static int sliderint = 0;
+// Tab state: Visual / Aim / Whitelist (one active at a time).
+enum class Tab { Visual, Aim, Whitelist };
+static Tab currentTab = Tab::Visual;
+
+// Sidebar icon textures (loaded once at init, released in ShutdownMenu).
+static ImTextureID iconVisual = (ImTextureID)0;
+static ImTextureID iconAim = (ImTextureID)0;
+static ImTextureID iconWhitelist = (ImTextureID)0;
+static bool g_SidebarIconsTried = false;
+
+// Persistent slider value (not reinitialized per frame); used by General panel.
+static int sliderValue = 0;
 static bool checkbox = false;
-static int tabs = 1;
 static int sett = 0;
+
+// Clean slider using SliderBehavior + theme colors; no dots (avoids custom SliderScalar in imgui_widgets).
+// Must activate the slider on click/focus (SetActiveID) so SliderBehavior can update value — same as SliderScalar.
+static bool ThemedSliderInt(const char* label, int* v, int v_min, int v_max)
+{
+    ImGuiWindow* window = ImGui::GetCurrentWindow();
+    if (window->SkipItems)
+        return false;
+    ImGuiContext& g = *ImGui::GetCurrentContext();
+    const ImGuiStyle& style = g.Style;
+    const ImGuiID id = window->GetID(label);
+    const ImVec2 label_size = ImGui::CalcTextSize(label, NULL, true);
+    const ImVec2 cursor = window->DC.CursorPos;
+    const ImRect frame_bb(cursor, ImVec2(cursor.x + 220.f, cursor.y + 30.f));
+    const ImRect total_bb(ImVec2(frame_bb.Min.x + 70, frame_bb.Min.y), ImVec2(frame_bb.Max.x, frame_bb.Max.y));
+
+    const bool hovered = ImGui::ItemHoverable(frame_bb, id);
+    ImGui::ItemSize(total_bb, style.FramePadding.y);
+    if (!ImGui::ItemAdd(total_bb, id, &frame_bb))
+        return false;
+
+    const bool focus_requested = ImGui::FocusableItemRegister(window, id);
+    const bool clicked = (hovered && g.IO.MouseClicked[0]);
+    if (focus_requested || clicked || g.NavActivateId == id || g.NavInputId == id)
+    {
+        ImGui::SetActiveID(id, window);
+        ImGui::SetFocusID(id, window);
+        ImGui::FocusWindow(window);
+        g.ActiveIdUsingNavDirMask |= (1 << ImGuiDir_Left) | (1 << ImGuiDir_Right);
+    }
+
+    ImRect grab_bb;
+    const bool value_changed = ImGui::SliderBehavior(total_bb, id, ImGuiDataType_S32, v, &v_min, &v_max, "%d", 0, &grab_bb);
+    if (value_changed)
+        ImGui::MarkItemEdited(id);
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float frame_r = style.FrameRounding;
+    const float grab_h = grab_bb.Max.y - grab_bb.Min.y;
+    const float grab_r = ImMin(style.GrabRounding, grab_h * 0.5f);  // pill: rounding up to half height
+    const ImRect track_rect(ImVec2(total_bb.Min.x, frame_bb.Min.y + 11), ImVec2(total_bb.Max.x, frame_bb.Max.y - 11));
+    dl->AddRectFilled(track_rect.Min, track_rect.Max, GetStyleColorU32(ImGuiCol_FrameBg), frame_r);
+
+    const bool grab_active = (g.ActiveId == id);
+    ImU32 grab_col = GetStyleColorU32(grab_active ? ImGuiCol_SliderGrabActive : ImGuiCol_SliderGrab);
+    dl->AddRectFilled(grab_bb.Min, grab_bb.Max, grab_col, grab_r);
+
+    char value_buf[32];
+    std::snprintf(value_buf, sizeof(value_buf), "%d", *v);
+    const ImRect value_rect(frame_bb.Min, ImVec2(frame_bb.Min.x + 45, frame_bb.Max.y));
+    ImGui::RenderTextClipped(value_rect.Min, value_rect.Max, value_buf, value_buf + std::strlen(value_buf), NULL, ImVec2(0.5f, 0.5f));
+    if (label_size.x > 0.0f)
+        ImGui::RenderText(ImVec2(frame_bb.Min.x + 25, frame_bb.Min.y - 20), label);
+
+    return value_changed;
+}
 
 // Dark mode: persistent state + animation scalar (0=light, 1=dark). No theme colors changed yet.
 static bool  g_DarkMode = false;
@@ -163,14 +257,22 @@ void SaveMenuSettings()
 
 void ShutdownMenu()
 {
+    static bool g_ShutdownDone = false;
+    if (g_ShutdownDone)
+        return;
+    g_ShutdownDone = true;
+
     if (g_MoonTex != (ImTextureID)0)
     {
         ReleaseTextureOpenGL(g_MoonTex);
         g_MoonTex = (ImTextureID)0;
     }
+    if (iconVisual) { ReleaseTextureOpenGL(iconVisual); iconVisual = (ImTextureID)0; }
+    if (iconAim) { ReleaseTextureOpenGL(iconAim); iconAim = (ImTextureID)0; }
+    if (iconWhitelist) { ReleaseTextureOpenGL(iconWhitelist); iconWhitelist = (ImTextureID)0; }
 }
 
-// Load moon icon once; prefer exe-dir icons/ then fallbacks. Never crashes; fallback to "🌙" if missing.
+// Load moon icon once; prefer "moon (1).png" then "moon.png". Exe-dir then fallbacks. No crash if missing.
 static void EnsureMoonTexture()
 {
     if (g_MoonTexTried)
@@ -181,8 +283,18 @@ static void EnsureMoonTexture()
     GetExeDir(exeDir, sizeof(exeDir));
     if (exeDir[0])
     {
-        std::snprintf(buf, sizeof(buf), "%sicons\\moon.png", exeDir);
+        std::snprintf(buf, sizeof(buf), "%sicons\\moon (1).png", exeDir);
         g_MoonTex = LoadTextureFromFileOpenGL(buf);
+        if (g_MoonTex == (ImTextureID)0)
+        {
+            std::snprintf(buf, sizeof(buf), "%sicons/moon (1).png", exeDir);
+            g_MoonTex = LoadTextureFromFileOpenGL(buf);
+        }
+        if (g_MoonTex == (ImTextureID)0)
+        {
+            std::snprintf(buf, sizeof(buf), "%sicons\\moon.png", exeDir);
+            g_MoonTex = LoadTextureFromFileOpenGL(buf);
+        }
         if (g_MoonTex == (ImTextureID)0)
         {
             std::snprintf(buf, sizeof(buf), "%sicons/moon.png", exeDir);
@@ -191,7 +303,7 @@ static void EnsureMoonTexture()
     }
     if (g_MoonTex == (ImTextureID)0)
     {
-        const char* fallbacks[] = { "icons/moon.png", "../../../../icons/moon.png", "../../../icons/moon.png" };
+        const char* fallbacks[] = { "icons/moon (1).png", "icons/moon.png", "../../../../icons/moon (1).png", "../../../../icons/moon.png", "../../../icons/moon.png" };
         for (const char* p : fallbacks)
         {
             g_MoonTex = LoadTextureFromFileOpenGL(p);
@@ -200,13 +312,58 @@ static void EnsureMoonTexture()
     }
 }
 
+// Load sidebar icons once (Visual, Aim, Whitelist). Prefer exe-dir icons/ then fallbacks. PNG only; no per-frame load.
+static void EnsureSidebarIcons()
+{
+    if (g_SidebarIconsTried)
+        return;
+    g_SidebarIconsTried = true;
+    char buf[512];
+    char exeDir[512];
+    GetExeDir(exeDir, sizeof(exeDir));
+    const char* names[] = { "visuual.png", "aim.png", "whitelist.png" };
+    ImTextureID* targets[] = { &iconVisual, &iconAim, &iconWhitelist };
+    for (int i = 0; i < 3; i++)
+    {
+        if (exeDir[0])
+        {
+            std::snprintf(buf, sizeof(buf), "%sicons\\%s", exeDir, names[i]);
+            *targets[i] = LoadTextureFromFile(buf, nullptr, nullptr);
+            if (*targets[i] == (ImTextureID)0)
+            {
+                std::snprintf(buf, sizeof(buf), "%sicons/%s", exeDir, names[i]);
+                *targets[i] = LoadTextureFromFile(buf, nullptr, nullptr);
+            }
+        }
+        if (*targets[i] == (ImTextureID)0)
+        {
+            char fallback[64];
+            std::snprintf(fallback, sizeof(fallback), "icons/%s", names[i]);
+            *targets[i] = LoadTextureFromFile(fallback, nullptr, nullptr);
+        }
+    }
+}
+
 // ---- Helpers ----
+
+// Section header color: TextDisabled-like but readable in dark mode (lerp toward Text).
+static ImVec4 GetSectionHeaderColor()
+{
+    ImVec4 td = ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
+    ImVec4 t = ImGui::GetStyleColorVec4(ImGuiCol_Text);
+    const float blend = 0.45f;
+    return ImVec4(
+        td.x + (t.x - td.x) * blend,
+        td.y + (t.y - td.y) * blend,
+        td.z + (t.z - td.z) * blend,
+        1.0f);
+}
 
 void DrawSectionHeader(const char* label)
 {
     ImGui::Spacing();
     ImGui::Dummy(ImVec2(0, kSectionSpacingAbove));
-    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    ImGui::PushStyleColor(ImGuiCol_Text, GetSectionHeaderColor());
     ImGui::SetWindowFontScale(kSectionHeaderScale);
     ImGui::TextUnformatted(label);
     ImGui::SetWindowFontScale(1.f);
@@ -238,14 +395,15 @@ bool DrawSidebarItem(const char* display_label, const char* unique_id, bool sele
     bool pressed = ImGui::ButtonBehavior(bb, id, &hovered, &held, 0);
     ImDrawList* dl = ImGui::GetWindowDrawList();
     float rounding = Theme::Style::kFrameRounding;
-    // Theme-derived: selected = HeaderActive, hover = FrameBgHovered, accent = CheckMark, text = Text (readable in both modes)
+    // Selected: subtle tinted bg + accent bar. Hover: slight lift only (never when selected).
     if (selected)
         dl->AddRectFilled(bb.Min, bb.Max, GetStyleColorU32(ImGuiCol_HeaderActive), rounding);
     if (hovered && !selected)
         dl->AddRectFilled(bb.Min, bb.Max, GetStyleColorU32(ImGuiCol_FrameBgHovered), rounding);
     if (selected)
         dl->AddRectFilled(ImVec2(bb.Min.x, bb.Min.y), ImVec2(bb.Min.x + kAccentBarWidth, bb.Max.y), GetStyleColorU32(ImGuiCol_CheckMark), 0.f);
-    ImVec2 text_pos(bb.Min.x + style.FramePadding.x + (selected ? kAccentBarWidth : 0.f), bb.Min.y + (kSidebarItemHeight - label_size.y) * 0.5f);
+    float text_offset = selected ? kAccentBarWidth : 0.f;
+    ImVec2 text_pos(bb.Min.x + style.FramePadding.x + text_offset, bb.Min.y + (kSidebarItemHeight - label_size.y) * 0.5f);
     dl->AddText(text_pos, GetStyleColorU32(ImGuiCol_Text), display_label);
     return pressed;
 }
@@ -282,7 +440,7 @@ bool DrawSidebarItemAnimated(const char* display_label, const char* unique_id, b
     ImDrawList* dl = ImGui::GetWindowDrawList();
     float rounding = Theme::Style::kFrameRounding;
 
-    // Single background per item (no stacked alpha): selected uses HeaderActive, hover uses FrameBgHovered.
+    // Selected: subtle tinted bg + accent bar. Hover: slight lift only (drawn only when not selected).
     if (sl > 0.001f)
     {
         ImU32 selected_bg = SetAlpha(GetStyleColorU32(ImGuiCol_HeaderActive), sl);
@@ -326,77 +484,157 @@ void DrawTopHeader(const char* icon, const char* title)
 
 // ---- Layout regions ----
 
-// Theme-aware rail tab (replaces ImGui::tab which uses hardcoded light colors in core).
-static bool DrawRailTab(const char* label, bool selected)
+// Theme colors for icon rail (no yellow, no white on hover): dark and light palettes, blended by g_ThemeT.
+static void GetIconRailColors(ImVec4* out_button, ImVec4* out_hover, ImVec4* out_active, ImVec4* out_tint)
 {
-    ImGuiWindow* window = ImGui::GetCurrentWindow();
-    if (window->SkipItems) return false;
-    const ImGuiStyle& style = ImGui::GetCurrentContext()->Style;
-    const ImGuiID id = window->GetID(label);
-    const ImVec2 label_size = ImGui::CalcTextSize(label, NULL, true);
-    const ImVec2 size = ImGui::CalcItemSize(ImVec2(15, 15), label_size.x + style.FramePadding.x * 2.f, label_size.y + style.FramePadding.y * 2.f);
-    ImVec2 pos = window->DC.CursorPos;
-    const ImRect bb(pos, ImVec2(pos.x + size.x, pos.y + size.y));
-    ImGui::ItemSize(size, style.FramePadding.y);
-    if (!ImGui::ItemAdd(bb, id)) return false;
-    bool hovered = false, held = false;
-    bool pressed = ImGui::ButtonBehavior(bb, id, &hovered, &held, 0);
+    const ImVec4 dark_btn(0.16f, 0.17f, 0.19f, 1.0f);
+    const ImVec4 dark_hover(0.19f, 0.20f, 0.22f, 1.0f);
+    const ImVec4 dark_active(0.20f, 0.21f, 0.26f, 1.0f);
+    const ImVec4 light_btn(0.92f, 0.93f, 0.95f, 1.0f);
+    const ImVec4 light_hover(0.88f, 0.89f, 0.91f, 1.0f);
+    const ImVec4 light_active(0.82f, 0.85f, 0.92f, 1.0f);
+    const ImVec4 dark_tint(1.0f, 1.0f, 1.0f, 1.0f);
+    const ImVec4 light_tint(0.15f, 0.15f, 0.18f, 1.0f);
+    float t = g_ThemeT;
+    if (out_button)
+        *out_button = ImVec4(dark_btn.x + (light_btn.x - dark_btn.x) * (1.f - t), dark_btn.y + (light_btn.y - dark_btn.y) * (1.f - t), dark_btn.z + (light_btn.z - dark_btn.z) * (1.f - t), 1.f);
+    if (out_hover)
+        *out_hover = ImVec4(dark_hover.x + (light_hover.x - dark_hover.x) * (1.f - t), dark_hover.y + (light_hover.y - dark_hover.y) * (1.f - t), dark_hover.z + (light_hover.z - dark_hover.z) * (1.f - t), 1.f);
+    if (out_active)
+        *out_active = ImVec4(dark_active.x + (light_active.x - dark_active.x) * (1.f - t), dark_active.y + (light_active.y - dark_active.y) * (1.f - t), dark_active.z + (light_active.z - dark_active.z) * (1.f - t), 1.f);
+    if (out_tint)
+        *out_tint = ImVec4(dark_tint.x + (light_tint.x - dark_tint.x) * (1.f - t), dark_tint.y + (light_tint.y - dark_tint.y) * (1.f - t), dark_tint.z + (light_tint.z - dark_tint.z) * (1.f - t), 1.f);
+}
+
+// Icon tab: InvisibleButton + custom draw. Rounded hover/active only (theme FrameBgHovered/FrameBgActive), no permanent box.
+// UVs (0,1)-(1,0) so icons are not upside down with OpenGL texture coords.
+static bool DrawIconTab(const char* id, ImTextureID tex, bool selected, ImVec4 tint, const char* fallbackLabel)
+{
+    const float hitSize = 32.f;
+    const float iconSize = 24.f;
+    const float rounding = 8.f;
+
+    ImGui::InvisibleButton(id, ImVec2(hitSize, hitSize));
+    const bool pressed = ImGui::IsItemClicked(0);
+    const bool hovered = ImGui::IsItemHovered();
+    const bool active = ImGui::IsItemActive();
+
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    const float rounding = 4.f;
-    ImU32 fill = GetStyleColorU32(held && hovered ? ImGuiCol_FrameBgActive : hovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg);
-    ImU32 border_col = GetStyleColorU32(ImGuiCol_Border);
-    dl->AddRectFilled(bb.Min, bb.Max, fill, rounding);
-    dl->AddRect(bb.Min, bb.Max, border_col, rounding);
-    if (selected)
-        dl->AddLine(ImVec2(bb.Max.x + 7, bb.Min.y + 3), ImVec2(bb.Max.x + 7, bb.Max.y - 3), GetStyleColorU32(ImGuiCol_CheckMark), 2.f);
+    ImVec2 mn = ImGui::GetItemRectMin();
+    ImVec2 mx = ImGui::GetItemRectMax();
+
+    if (selected || active)
+        dl->AddRectFilled(mn, mx, GetStyleColorU32(ImGuiCol_FrameBgActive), rounding);
+    else if (hovered)
+        dl->AddRectFilled(mn, mx, GetStyleColorU32(ImGuiCol_FrameBgHovered), rounding);
+
+    ImVec2 iconMin(mn.x + (hitSize - iconSize) * 0.5f, mn.y + (hitSize - iconSize) * 0.5f);
+    ImVec2 iconMax(iconMin.x + iconSize, iconMin.y + iconSize);
+    ImU32 tintU32 = ImGui::ColorConvertFloat4ToU32(tint);
+
+    if (tex)
+        dl->AddImage(tex, iconMin, iconMax, ImVec2(0, 1), ImVec2(1, 0), tintU32);
+    else if (fallbackLabel && fallbackLabel[0])
+    {
+        ImVec2 labelSize = ImGui::CalcTextSize(fallbackLabel);
+        ImVec2 textPos(iconMin.x + (iconSize - labelSize.x) * 0.5f, iconMin.y + (iconSize - labelSize.y) * 0.5f);
+        dl->AddText(textPos, tintU32, fallbackLabel);
+    }
+
     return pressed;
 }
 
-// Theme-aware rail icon button (replaces ImGui::settingsbutton; uses FrameBg + Text from theme).
-static bool DrawRailIconButton(const char* label)
+// Settings gear: InvisibleButton + theme bg only on hover/active (like moon button). No gray square when idle.
+static bool DrawSettingsGearButton()
 {
-    ImGuiWindow* window = ImGui::GetCurrentWindow();
-    if (window->SkipItems) return false;
-    const ImGuiStyle& style = ImGui::GetCurrentContext()->Style;
-    const ImGuiID id = window->GetID(label);
-    if (!iconfont) return false;
-    ImGui::PushFont(iconfont);
-    const ImVec2 label_size = ImGui::CalcTextSize(label, NULL, true);
-    ImGui::PopFont();
-    const ImVec2 size = ImGui::CalcItemSize(ImVec2(15, 15), label_size.x + style.FramePadding.x * 2.f, label_size.y + style.FramePadding.y * 2.f);
-    ImVec2 pos = window->DC.CursorPos;
-    const ImRect bb(pos, ImVec2(pos.x + size.x, pos.y + size.y));
-    ImGui::ItemSize(size, style.FramePadding.y);
-    if (!ImGui::ItemAdd(bb, id)) return false;
-    bool hovered = false, held = false;
-    bool pressed = ImGui::ButtonBehavior(bb, id, &hovered, &held, 0);
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    const float rounding = 4.f;
-    ImU32 fill = GetStyleColorU32(held && hovered ? ImGuiCol_FrameBgActive : hovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg);
-    dl->AddRectFilled(bb.Min, bb.Max, fill, rounding);
-    ImVec2 text_pos(bb.Min.x + size.x * 0.5f - label_size.x * 0.5f, bb.Min.y + size.y * 0.5f - label_size.y * 0.5f);
-    dl->AddText(iconfont, iconfont->FontSize, text_pos, GetStyleColorU32(ImGuiCol_Text), label);
+    const ImVec2 size(22.f, 22.f);
+    ImGui::InvisibleButton("##settings", size);
+    const bool pressed = ImGui::IsItemClicked(0);
+    const bool hovered = ImGui::IsItemHovered();
+    const bool active = ImGui::IsItemActive();
+
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    ImVec2 p = ImGui::GetItemRectMin();
+    ImVec2 p2 = ImGui::GetItemRectMax();
+
+    // Like moon: no bg when idle; subtle hover/active only (theme-driven).
+    if (active)
+        draw->AddRectFilled(p, p2, GetStyleColorU32(ImGuiCol_FrameBgActive), 6.0f);
+    else if (hovered)
+        draw->AddRectFilled(p, p2, GetStyleColorU32(ImGuiCol_FrameBgHovered), 6.0f);
+
+    // Gear icon centered (icon font "L")
+    if (iconfont)
+    {
+        const char* gear = "L";
+        ImGui::PushFont(iconfont);
+        ImVec2 label_size = ImGui::CalcTextSize(gear, NULL, true);
+        ImGui::PopFont();
+        ImVec2 text_pos(p.x + (size.x - label_size.x) * 0.5f, p.y + (size.y - label_size.y) * 0.5f);
+        draw->AddText(iconfont, iconfont->FontSize, text_pos, GetStyleColorU32(ImGuiCol_Text), gear);
+    }
+
     return pressed;
 }
 
 static void DrawIconRail()
 {
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_MenuBarBg));
-    ImGui::BeginChild("##icon_rail", ImVec2(kIconRailWidth, -1), false, 0);
-    ImGui::SetCursorPos(ImVec2(kPanelPaddingH - 2.f, 7.f));
+    // Sidebar BG: dark (0.12,0.13,0.15) / light (0.94,0.95,0.97)
+    float t = g_ThemeT;
+    ImVec4 sidebarBg(
+        0.12f + (0.94f - 0.12f) * (1.f - t),
+        0.13f + (0.95f - 0.13f) * (1.f - t),
+        0.15f + (0.97f - 0.15f) * (1.f - t),
+        1.0f);
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, sidebarBg);
+    ImGui::BeginChild("##icon_rail", ImVec2(kIconRailWidth, -1), false, ImGuiWindowFlags_NoScrollbar);
+    ImGui::SetCursorPos(ImVec2((kIconRailWidth - 24.f) * 0.5f, 7.f));
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_Text));
     DrawTopHeader("K", nullptr);
     ImGui::PopStyleColor();
-    ImGui::SetCursorPos(ImVec2(17.f, 75.f));
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 16));
+
+    EnsureSidebarIcons();
+    ImVec4 tintCol;
+    GetIconRailColors(nullptr, nullptr, nullptr, &tintCol);
+
+    const float tabHitSize = 32.f;
+    const float spacing = 10.f;
+    const float railPad = (kIconRailWidth - tabHitSize) * 0.5f;
+    ImGui::SetCursorPos(ImVec2(railPad, 55.f));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, spacing));
     ImGui::BeginGroup();
-    if (DrawRailTab("A", 0 == tabs)) tabs = 0;
-    if (DrawRailTab("B", 1 == tabs)) tabs = 1;
-    if (DrawRailTab("C", 2 == tabs)) tabs = 2;
-    if (DrawRailTab("D", 3 == tabs)) tabs = 3;
-    if (DrawRailTab("E", 4 == tabs)) tabs = 4;
+
+    if (DrawIconTab("##tab_visual", iconVisual, currentTab == Tab::Visual, tintCol, "V"))
+        currentTab = Tab::Visual;
+    if (DrawIconTab("##tab_aim", iconAim, currentTab == Tab::Aim, tintCol, "A"))
+        currentTab = Tab::Aim;
+    if (DrawIconTab("##tab_whitelist", iconWhitelist, currentTab == Tab::Whitelist, tintCol, "W"))
+        currentTab = Tab::Whitelist;
+
     ImGui::SetCursorPosY(ImGui::GetWindowHeight() - 40.f);
-    if (DrawRailIconButton("L")) sett = 1;
+    if (DrawSettingsGearButton())
+        sett = 1;
+    if (sett == 1)
+    {
+        ImGui::OpenPopup("##settings_popup");
+        ImVec2 gear_min = ImGui::GetItemRectMin();
+        ImVec2 gear_max = ImGui::GetItemRectMax();
+        ImGui::SetNextWindowPos(ImVec2(gear_min.x, gear_max.y + 2.f), ImGuiCond_Appearing, ImVec2(0.f, 0.f));
+        sett = 2;
+    }
+    if (ImGui::BeginPopup("##settings_popup"))
+    {
+        if (sett == 2)
+            sett = 0;
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.f, 10.f));
+        ImGui::TextUnformatted("Settings");
+        ImGui::Separator();
+        ImGui::TextUnformatted("Theme and options here.");
+        ImGui::PopStyleVar();
+        ImGui::EndPopup();
+    }
+    else if (sett == 2)
+        sett = 0;
     ImGui::EndGroup();
     ImGui::PopStyleVar();
     ImGui::EndChild();
@@ -405,7 +643,7 @@ static void DrawIconRail()
 
 static void DrawSidebar()
 {
-    if (tabs != 1)
+    if (currentTab != Tab::Visual)
         return;
     const std::vector<NavSection>& sections = GetNavSections();
     ImGui::SameLine(0, 0);
@@ -445,7 +683,7 @@ static void DrawVerticalDivider()
 
 static void DrawGeneralPanel()
 {
-    if (tabs != 1)
+    if (currentTab != Tab::Visual)
         return;
     DrawVerticalDivider();
     ImGui::SameLine(0, 0);
@@ -457,15 +695,21 @@ static void DrawGeneralPanel()
     ImGui::SetCursorPos(ImVec2(kPanelPaddingH, kPanelPaddingV));
     ImGui::BeginGroup();
     ImGui::Checkbox("Checkbox", &checkbox);
-    ImGui::SliderInt("SliderInt", &sliderint, 0, 100);
+    {
+        ImGui::PushStyleVar(ImGuiStyleVar_GrabRounding, 8.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f);
+        ThemedSliderInt("SliderInt", &sliderValue, 0, 100);
+        ImGui::PopStyleVar(2);
+    }
     ImGui::Button("Button", ImVec2(220, 30));
     ImGui::EndGroup();
     ImGui::EndChild();
+    ImGui::PopStyleColor();
 }
 
 static void DrawPreviewPanel()
 {
-    if (tabs != 1)
+    if (currentTab != Tab::Visual)
         return;
     DrawVerticalDivider();
     ImGui::SameLine(0, 0);
@@ -485,11 +729,12 @@ static void DrawMenuBackground()
     draw->AddRectFilled(pos, ImVec2(pos.x + w, pos.y + h), GetStyleColorU32(ImGuiCol_WindowBg), rounding);
 }
 
-// Theme toggle: InvisibleButton + custom draw. Default transparent, hover/active use theme (no blue block). Icon tint = Text (dark in light, light in dark).
+// Theme toggle: InvisibleButton + draw soft rounded bg (hover/active only) + centered moon icon. Tint = Text (dark in light, light in dark).
 static void DrawThemeToggleButton()
 {
     const float btn_size = 24.f;
     const float margin = 8.f;
+    const float icon_pad = 2.f;  // inset so icon is centered and not clipped
     float win_w = ImGui::GetWindowWidth();
     ImGui::SetCursorPos(ImVec2(win_w - btn_size - margin, margin));
 
@@ -506,14 +751,18 @@ static void DrawThemeToggleButton()
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const float rounding = Theme::Style::kFrameRounding;
 
+    // Default: no background. Hover/active: soft rounded bg from theme (no hardcoded blue).
     if (active)
         dl->AddRectFilled(mn, mx, GetStyleColorU32(ImGuiCol_FrameBgActive), rounding);
     else if (hovered)
         dl->AddRectFilled(mn, mx, GetStyleColorU32(ImGuiCol_FrameBgHovered), rounding);
 
+    // Tint animates with theme: light = dark gray, dark = near-white (blended in ApplyBlendedTheme).
     ImU32 icon_tint = GetStyleColorU32(ImGuiCol_Text);
+    ImVec2 imn(mn.x + icon_pad, mn.y + icon_pad);
+    ImVec2 imx(mx.x - icon_pad, mx.y - icon_pad);
     if (g_MoonTex != (ImTextureID)0)
-        dl->AddImage(g_MoonTex, mn, mx, ImVec2(0, 0), ImVec2(1, 1), icon_tint);
+        dl->AddImage(g_MoonTex, imn, imx, ImVec2(0, 0), ImVec2(1, 1), icon_tint);
     else
     {
         const char* fallback = "🌙";
@@ -553,31 +802,79 @@ void LoadMenuFonts(ImGuiIO& io)
     io.Fonts->Build();
 }
 
-// Single theme apply per frame: update g_ThemeT from g_DarkMode, then ApplyBlendedTheme. Call after NewFrame(), before RenderMenu().
+// Theme transition: ~220ms duration, eased, stable at any FPS. No allocation per frame.
+static const float kThemeTransitionDuration = 0.22f;  // 180–260ms range
+
+// Single theme apply per frame: update g_ThemeT from g_DarkMode, ease, then ApplyBlendedTheme. Call after NewFrame(), before RenderMenu().
 void ApplyMenuTheme()
 {
-    const float kThemeSpeed = 10.0f;
+    // #region agent log
+    DebugLog("menu.cpp:ApplyMenuTheme", "enter", "ApplyMenuTheme");
+    // #endregion
     float dt = ImGui::GetIO().DeltaTime;
     float target = g_DarkMode ? 1.0f : 0.0f;
-    float step = kThemeSpeed * dt;
-    if (g_ThemeT < target) { g_ThemeT = ImMin(g_ThemeT + step, target); }
-    else if (g_ThemeT > target) { g_ThemeT = ImMax(g_ThemeT - step, target); }
+    float max_delta = (kThemeTransitionDuration > 0.f) ? (1.0f / kThemeTransitionDuration) * dt : 1.0f;
+    g_ThemeT = MoveTowards(g_ThemeT, target, max_delta);
     g_ThemeT = ImClamp(g_ThemeT, 0.0f, 1.0f);
-    Theme::ApplyBlendedTheme(g_ThemeT);
+
+    float t_eased = EaseInOutCubic(g_ThemeT);
+    Theme::ApplyBlendedTheme(t_eased);
 }
 
 void RenderMenu()
 {
+    // #region agent log
+    DebugLog("menu.cpp:RenderMenu", "enter", "RenderMenu");
+    // #endregion
     float w = kMenuWidth * dpi_scale;
     float h = kMenuHeight * dpi_scale;
     ImGui::Begin("Menu", nullptr, ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_HorizontalScrollbar);
     ImGui::SetWindowSize(ImVec2(ImFloor(w), ImFloor(h)));
+    // #region agent log
+    DebugLog("menu.cpp:RenderMenu", "before DrawMenuBackground", "DrawMenuBackground");
+    // #endregion
     DrawMenuBackground();
+    // #region agent log
+    DebugLog("menu.cpp:RenderMenu", "before DrawThemeToggleButton", "DrawThemeToggleButton");
+    // #endregion
     DrawThemeToggleButton();
+    // #region agent log
+    DebugLog("menu.cpp:RenderMenu", "before DrawIconRail", "DrawIconRail");
+    // #endregion
     DrawIconRail();
+    // #region agent log
+    DebugLog("menu.cpp:RenderMenu", "before DrawVerticalDivider", "DrawVerticalDivider");
+    // #endregion
     DrawVerticalDivider();
+    // #region agent log
+    DebugLog("menu.cpp:RenderMenu", "before DrawSidebar", "DrawSidebar");
+    // #endregion
     DrawSidebar();
+    // #region agent log
+    DebugLog("menu.cpp:RenderMenu", "before DrawGeneralPanel", "DrawGeneralPanel");
+    // #endregion
     DrawGeneralPanel();
+    // #region agent log
+    DebugLog("menu.cpp:RenderMenu", "before DrawPreviewPanel", "DrawPreviewPanel");
+    // #endregion
     DrawPreviewPanel();
+    // #region agent log
+    {
+        ImGuiContext& g = *ImGui::GetCurrentContext();
+        ImGuiWindow* w = g.CurrentWindow;
+        char buf[128];
+        std::snprintf(buf, sizeof(buf), "id=%d:%d grp=%d:%d pop=%d:%d col=%d:%d style=%d:%d",
+            (int)w->IDStack.Size, (int)w->DC.StackSizesOnBegin.SizeOfIDStack,
+            (int)g.GroupStack.Size, (int)w->DC.StackSizesOnBegin.SizeOfGroupStack,
+            (int)g.BeginPopupStack.Size, (int)w->DC.StackSizesOnBegin.SizeOfBeginPopupStack,
+            (int)g.ColorStack.Size, (int)w->DC.StackSizesOnBegin.SizeOfColorStack,
+            (int)g.StyleVarStack.Size, (int)w->DC.StackSizesOnBegin.SizeOfStyleVarStack);
+        DebugLog("menu.cpp:RenderMenu", buf, "stacks_before_End");
+    }
+    DebugLog("menu.cpp:RenderMenu", "before ImGui::End", "RenderMenu_end");
+    // #endregion
     ImGui::End();
+    // #region agent log
+    DebugLog("menu.cpp:RenderMenu", "after ImGui::End", "RenderMenu_done");
+    // #endregion
 }

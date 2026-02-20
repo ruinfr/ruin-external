@@ -61,11 +61,23 @@ int main(int, char**)
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
+        // #region agent log
+        DebugLog("main.cpp:loop", "after NewFrame", "loop_start");
+        // #endregion
 
         ApplyMenuTheme();
+        // #region agent log
+        DebugLog("main.cpp:loop", "after ApplyMenuTheme", "after_ApplyMenuTheme");
+        // #endregion
         RenderMenu();
+        // #region agent log
+        DebugLog("main.cpp:loop", "after RenderMenu", "after_RenderMenu");
+        // #endregion
 
         ImGui::Render();
+        // #region agent log
+        DebugLog("main.cpp:loop", "after ImGui::Render", "after_Render");
+        // #endregion
         int display_w, display_h;
         glfwGetFramebufferSize(window, &display_w, &display_h);
         glViewport(0, 0, display_w, display_h);
@@ -74,13 +86,23 @@ int main(int, char**)
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
         glfwSwapBuffers(window);
+        // #region agent log
+        DebugLog("main.cpp:loop", "after SwapBuffers", "after_SwapBuffers");
+        // #endregion
     }
 
-    ShutdownMenu();
-    ImGui_ImplOpenGL3_Shutdown();
-    ImGui_ImplGlfw_Shutdown();
-    ImGui::DestroyContext();
-    glfwDestroyWindow(window);
-    glfwTerminate();
+    // Shutdown exactly once; order must be correct to avoid heap/GL asserts on exit.
+    static bool g_ShutdownDone = false;
+    if (!g_ShutdownDone)
+    {
+        g_ShutdownDone = true;
+        glfwMakeContextCurrent(window);
+        ImGui_ImplOpenGL3_Shutdown();
+        ImGui_ImplGlfw_Shutdown();
+        ImGui::DestroyContext();
+        ShutdownMenu();
+        glfwDestroyWindow(window);
+        glfwTerminate();
+    }
     return 0;
 }

@@ -33,7 +33,7 @@ int GetSidebarFlatIndex(const std::vector<NavSection>& sections, int section_ind
 namespace MenuLayout {
     const float kMenuWidth           = 805.f;
     const float kMenuHeight          = 575.f;
-    const float kIconRailWidth       = 50.f;
+    const float kIconRailWidth       = 64.f;
     const float kSidebarWidth        = 180.f;
     const float kPreviewWidth        = 280.f;
     const float kPanelPaddingH       = 15.f;
@@ -70,3 +70,6 @@ void LoadMenuSettings();
 void SaveMenuSettings();
 // Release menu resources (e.g. icon texture). Call before renderer shutdown.
 void ShutdownMenu();
+
+// Debug: append one NDJSON line to session log (crash tracing).
+void DebugLog(const char* location, const char* message, const char* step);

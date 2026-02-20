@@ -1220,9 +1220,11 @@ bool ImGui::Checkbox(const char* label, bool* v)
     else
         it_filled->second = ImClamp(it_filled->second + (13.2f * ImGui::GetIO().DeltaTime * ((*v) ? 1.f : -1.f)), 0.0f, 1.f);
 
-    draw->AddRect(check_bb.Min, check_bb.Max, ImColor(206, 206, 211), 2);
+    window->DrawList->AddRect(check_bb.Min, check_bb.Max, GetColorU32(ImGuiCol_Border), 2);
 
-    RenderFrame(ImVec2(check_bb.Min.x + 3.5f, check_bb.Min.y + 3.5f), ImVec2(check_bb.Max.x - 2.5f, check_bb.Max.y - 2.5f), GetColorU32(ImVec4(50 / 255.f, 50 / 255.f, 55 / 255.f, it_filled->second)), true, 2);
+    ImVec4 check_mark_col = style.Colors[ImGuiCol_CheckMark];
+    check_mark_col.w *= it_filled->second;
+    RenderFrame(ImVec2(check_bb.Min.x + 3.5f, check_bb.Min.y + 3.5f), ImVec2(check_bb.Max.x - 2.5f, check_bb.Max.y - 2.5f), GetColorU32(check_mark_col), true, 2);
 
     ImGui::PushStyleColor(ImGuiCol_Text, it_text->second);
     if (label_size.x > 0.0f)

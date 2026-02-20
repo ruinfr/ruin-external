@@ -71,10 +71,25 @@ endif()
 
 # Copy icons/ next to exe at build time for reliable icon loading
 set(ICONS_SRC ${CMAKE_CURRENT_SOURCE_DIR}/../../icons)
-if(EXISTS "${ICONS_SRC}/moon.png")
+add_custom_command(TARGET ImGuiMenuTest POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:ImGuiMenuTest>/icons"
+    COMMENT "Copy icons to exe directory"
+)
+if(EXISTS "${ICONS_SRC}/moon (1).png")
     add_custom_command(TARGET ImGuiMenuTest POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:ImGuiMenuTest>/icons"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${ICONS_SRC}/moon.png" "$<TARGET_FILE_DIR:ImGuiMenuTest>/icons/moon.png"
-        COMMENT "Copy icons to exe directory"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${ICONS_SRC}/moon (1).png" "$<TARGET_FILE_DIR:ImGuiMenuTest>/icons/moon (1).png"
     )
 endif()
+if(EXISTS "${ICONS_SRC}/moon.png")
+    add_custom_command(TARGET ImGuiMenuTest POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${ICONS_SRC}/moon.png" "$<TARGET_FILE_DIR:ImGuiMenuTest>/icons/moon.png"
+    )
+endif()
+# Tab icons: visuual.png, aim.png, whitelist.png (lowercase filenames)
+foreach(ICON_NAME visuual aim whitelist)
+    if(EXISTS "${ICONS_SRC}/${ICON_NAME}.png")
+        add_custom_command(TARGET ImGuiMenuTest POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${ICONS_SRC}/${ICON_NAME}.png" "$<TARGET_FILE_DIR:ImGuiMenuTest>/icons/${ICON_NAME}.png"
+        )
+    endif()
+endforeach()
